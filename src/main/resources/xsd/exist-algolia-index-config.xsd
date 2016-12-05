@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" targetNamespace="http://exist-db.org/collection-config/1.0" xmlns:c="http://exist-db.org/collection-config/1.0">
+
+  <xs:attributeGroup name="name">
+    <xs:attribute name="name" use="required" type="xs:NCName"/>
+  </xs:attributeGroup>
+
+  <xs:attributeGroup name="path">
+    <xs:attribute name="path" use="required" type="xs:string"/>
+  </xs:attributeGroup>
+
+  <xs:element name="algolia">
+    <xs:annotation>
+      <xs:documentation>Root element of the Algolia index configuration</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:namespaceMappings" minOccurs="0"/>
+        <xs:element ref="c:index" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="namespaceMappings">
+    <xs:annotation>
+      <xs:documentation>Any namespaces used as prefixes in the object or attribute paths for indexing</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="namespaceMapping" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="prefix" type="xs:NCName"/>
+            <xs:element name="namespace" type="xs:anyURI"/>
+          </xs:sequence>
+        </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="index">
+    <xs:annotation>
+      <xs:documentation>Defines the content that will be maintained in an Algolia index</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:rootObject" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="c:name"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="rootObject">
+    <xs:annotation>
+      <xs:documentation>Defines an object that will be created for each path (or document if the path is not specified or is set to '/') and added to the index. If none of the configured attribute or object paths match with a document, that document will be skipped</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:object" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element ref="c:attribute"  minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attribute name="path" use="optional" default="/" type="xs:string">
+        <xs:annotation>
+          <xs:documentation>The path for the rootObject, defaults to '/' which means one rootObject per document. By setting this to a path within a document, you can create multiple root objects per document.</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="object">
+    <xs:annotation>
+      <xs:documentation>Defines an object which is a JSON version of the serialized XML</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:mapping" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+      <xs:attributeGroup ref="c:name"/>
+      <xs:attributeGroup ref="c:path"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="attribute">
+    <xs:complexType>
+      <xs:attributeGroup ref="c:name"/>
+      <xs:attributeGroup ref="c:path"/>
+      <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="mapping">
+    <xs:complexType>
+      <xs:attributeGroup ref="c:path"/>
+      <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
+      <xs:attribute name="name" use="optional" type="xs:NCName"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="literalType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="string"/>
+      <xs:enumeration value="integer"/>
+      <xs:enumeration value="float"/>
+      <xs:enumeration value="boolean"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>
