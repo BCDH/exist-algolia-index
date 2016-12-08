@@ -23,11 +23,11 @@ object AlgoliaIndexWorker {
 }
 
 
-class AlgoliaIndexWorker(index: AlgoliaIndex) extends IndexWorker {
+class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker) extends IndexWorker {
 
   private var indexConfig: Option[Algolia] = None
   private val currentContext = Context(None, None)
-  private lazy val listener = new AlgoliaStreamListener(this)
+  private val listener = new AlgoliaStreamListener(this)
 
   def getIndex = index
 
@@ -56,18 +56,23 @@ class AlgoliaIndexWorker(index: AlgoliaIndex) extends IndexWorker {
       .headOption
 
     this.indexConfig = algoliaConfigElement.flatMap(loadJaxbConfig(_))
+    this.indexConfig.map(listener.configure)
+
+    // return the index config which will be kept by eXist for later calls to {@link #setDocument(document)
     indexConfig.getOrElse(null)
   }
 
   override def getDocument = currentContext.document.getOrElse(null)
 
-  override def setDocument(document: DocumentImpl) {
-    currentContext.document = Option(document)
-  }
+  override def setDocument(document: DocumentImpl) = setDocument(document, ReindexMode.UNKNOWN)
 
   override def setDocument(document: DocumentImpl, mode: ReindexMode) {
     currentContext.document = Option(document)
     currentContext.mode = Some(mode)
+
+    this.indexConfig = Option(document.getCollection().getIndexConfiguration(broker))
+          .flatMap(indexSpec => Option(indexSpec.getCustomIndexSpec(AlgoliaIndex.ID).asInstanceOf[Algolia]))
+    this.indexConfig.map(listener.configure)
   }
 
   override def getMode = currentContext.mode.getOrElse(ReindexMode.UNKNOWN)

@@ -1,6 +1,6 @@
 package org.humanistika.exist.index.algolia
 
-import java.util.{List => JList, Map => JMap}
+import java.util.{List => JList, Map => JMap, HashMap => JHashMap}
 import javax.xml.namespace.QName
 
 import org.exist.dom.persistent.{AttrImpl, ElementImpl}
@@ -117,7 +117,7 @@ object AlgoliaStreamListener {
       .getOrElse(Map.empty[String, String])
   }
 
-  private def byPath(config: Algolia): ConfigByPath = {
+  private def byPath(ns: JMap[String, String], config: Algolia): ConfigByPath = {
     def getAttributeConfigs(ns: JMap[String, String], rootObject: RootObject, rootObjectIdx: Int, rootPath: NodePath, indexName: String):  Map[NodePath, Seq[AttributeConfig]] = {
       toMap(rootObject.getAttribute.asScala.map { attribute =>
         val attributePath = concat(rootPath, nodePath(ns, attribute.getPath))
@@ -136,8 +136,6 @@ object AlgoliaStreamListener {
         (subObjectPath -> config)
       })
     }
-
-    val ns: JMap[String, String] = getNamespaceMappings(config).asJava
 
     config.getIndex.asScala.map { index =>
       val indexName = index.getName
@@ -159,14 +157,17 @@ object AlgoliaStreamListener {
 
 class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStreamListener {
 
-  private lazy val ns: JMap[String, String] = indexWorker.getConfig
-    .map(getNamespaceMappings(_))
-    .getOrElse(Map.empty[String, String])
-    .asJava
+  private var allConfigs: ConfigByPath = Map.empty
+  private val ns: JMap[String, String] = new JHashMap
 
-  private lazy val allConfigs: ConfigByPath = indexWorker.getConfig.map(byPath(_)).getOrElse(Map.empty)
+  def configure(config: Algolia) {
+    this.ns.clear()
+    getNamespaceMappings(config).foreach{ case (k,v) => ns.put(k, v)}
 
-  private var processingConfigs : ConfigByPath = Map.empty[NodePath, IndexConfig]
+    this.allConfigs = byPath(ns, config)
+  }
+
+//  private var processingConfigs : ConfigByPath = Map.empty[NodePath, IndexConfig]
   private var processingNodes: Map[NodePath, ElementImpl \/ AttrImpl] = Map.empty[NodePath, ElementImpl \/ AttrImpl]
 
   override def getWorker = indexWorker

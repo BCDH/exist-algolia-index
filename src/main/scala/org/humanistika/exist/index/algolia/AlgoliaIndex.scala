@@ -38,7 +38,9 @@ class AlgoliaIndex extends AbstractIndex {
 
   override def close() {}
 
-  override def getWorker(broker: DBBroker): IndexWorker = new AlgoliaIndexWorker(this)
+  override def getWorker(broker: DBBroker): IndexWorker = {
+    new AlgoliaIndexWorker(this, broker)
+  }
 
   def getAuthentication = apiAuthentication
 
