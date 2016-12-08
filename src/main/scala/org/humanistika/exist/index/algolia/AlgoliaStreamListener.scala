@@ -176,16 +176,18 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStr
     val pathClone = new NodePath(path)
 
     // store which configs are relevant for this element
-    this.processingConfigs = allConfigs.get(pathClone) match {
-      case Some(config) =>
-        val processingConfig: IndexConfig = mergeV(processingConfigs.getOrElse(path, Map.empty), config)
-        mergeMV(processingConfigs, Map(pathClone -> processingConfig))
-      case None =>
-        processingConfigs
-    }
+//    this.processingConfigs = allConfigs.get(pathClone) match {
+//      case Some(config) =>
+//        val processingConfig: IndexConfig = mergeV(processingConfigs.getOrElse(path, Map.empty), config)
+//        mergeMV(processingConfigs, Map(pathClone -> processingConfig))
+//      case None =>
+//        processingConfigs
+//    }
 
-    if(allConfigs.contains(path)) {
+    if(allConfigs.contains(pathClone)) {
       processingNodes = processingNodes + (pathClone -> element.left)
+
+      //TODO(AR) record the rootObject(s) for the element in the processingNodes too
     }
 
     //TODO(AR) associate the element with all processingConfigs
