@@ -201,6 +201,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStr
 
   override def attribute(transaction: Txn, attrib: AttrImpl, path: NodePath) {
     val pathClone = new NodePath(path)
+    pathClone.addComponent(attrib.getQName)
 
     if(allConfigs.contains(pathClone)) {
       processingNodes = processingNodes + (pathClone -> attrib.right)
