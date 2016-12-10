@@ -2,6 +2,7 @@ package org.humanistika.exist.index.algolia
 
 import java.io.StringWriter
 import java.util.Properties
+import javax.xml.bind.DatatypeConverter
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.sax.SAXResult
 import javax.xml.transform.{OutputKeys, TransformerFactory}
@@ -10,8 +11,7 @@ import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
 import org.exist.storage.NodePath
 import org.exist.util.serializer.{SAXSerializer, SerializerPool}
-import org.humanistika.exist.index.algolia.AlgoliaStreamListener.LiteralTypeConfig.LiteralTypeConfig
-import org.humanistika.exist.index.algolia.AlgoliaStreamListener.{IndexableAttribute, IndexableObject, IndexableRootObject, LiteralTypeConfig}
+import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import org.w3c.dom.{Element, Node}
 
 import scalaz._
@@ -23,8 +23,11 @@ import Scalaz._
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
   override def serialize(value: IndexableRootObject, gen: JsonGenerator, serializers: SerializerProvider): Unit = {
     gen.writeStartObject()
-    gen.writeNumberField("docId", value.documentId)
-    value.nodeId.map(gen.writeStringField("nodeId", _))
+
+    gen.writeStringField("objectID", value.collectionId + "/" + value.documentId + "/" + value.nodeId.getOrElse(0))
+//    gen.writeNumberField("collId", value.collectionId)
+//    gen.writeNumberField("docId", value.documentId)
+//    value.nodeId.map(gen.writeStringField("nodeId", _))
 
     serializeChildren(value.children, gen, serializers)
 
@@ -59,6 +62,10 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
         gen.writeBooleanField(attr.name, value.toBoolean)
       case LiteralTypeConfig.String =>
         gen.writeStringField(attr.name, value)
+      case LiteralTypeConfig.Date =>
+        gen.writeNumberField(attr.name, DatatypeConverter.parseDate(value).getTimeInMillis)
+      case LiteralTypeConfig.DateTime =>
+        gen.writeNumberField(attr.name, DatatypeConverter.parseDateTime(value).getTimeInMillis)
     }
   }
 
@@ -82,7 +89,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
   }
 
   private lazy val serializerPool = SerializerPool.getInstance
-  private lazy val transformerFactory = TransformerFactory.newInstance()
+  private lazy val transformerFactory : TransformerFactory = new net.sf.saxon.TransformerFactoryImpl
 
   private def serializeAsText(node: Node) : String = {
     val properties = new Properties()

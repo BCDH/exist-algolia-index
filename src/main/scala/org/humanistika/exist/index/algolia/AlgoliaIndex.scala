@@ -5,9 +5,11 @@ import java.nio.file.Path
 import org.apache.logging.log4j.{LogManager, Logger}
 import org.exist.indexing.{AbstractIndex, IndexWorker}
 import org.exist.storage.{BrokerPool, DBBroker}
-import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.Element
 import AlgoliaIndex._
+import com.algolia.search.AsyncHttpAPIClientBuilder
+
+import scala.collection.JavaConverters._
 
 object AlgoliaIndex {
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndex])
@@ -19,7 +21,10 @@ object AlgoliaIndex {
 class AlgoliaIndex extends AbstractIndex {
   private var apiAuthentication: Option[Authentication] = None
 
-  override def open() {}
+  override def open() {
+    // recommended by Algolia
+    java.security.Security.setProperty("networkaddress.cache.ttl", "60")
+  }
 
   override def configure(pool: BrokerPool, dataDir: Path, config: Element) {
     // get the authentication credentials from the config
@@ -44,8 +49,29 @@ class AlgoliaIndex extends AbstractIndex {
 
   def getAuthentication = apiAuthentication
 
-  override def remove() {
-    //TODO(AR) delete all the Algolia indexes?
+  override def remove(): Unit = {
+    //delete all the Algolia indexes?
+    getAuthentication match {
+      case None =>
+        LOG.error("Cannot remove Algolia indexes, no Authentication credentials provided")
+
+      case Some(auth) =>
+        val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
+          //TODO(AR) what other config should we support?
+          //.setObjectMapper(indexableRootObjectMapper)
+          .build()
+
+        val indexes = client.listIndices().get().asScala.map(indexAttributes => (indexAttributes.getName -> client.initIndex(indexAttributes.getName, classOf[IndexableRootObject])))
+
+        //TODO(AR) currently synchronous, make async
+        val futures = indexes.map(index => index._1 -> index._2.delete())
+        val results = futures.map(future => future._1 -> future._2.get().getTaskID)
+
+        LOG.info("Delete Algolia indexes")
+        if(LOG.isTraceEnabled()) {
+          results.map(result => LOG.trace("Deleted Algolia index: {}", result._1))
+        }
+    }
   }
 
   override def checkIndex(broker: DBBroker) = false

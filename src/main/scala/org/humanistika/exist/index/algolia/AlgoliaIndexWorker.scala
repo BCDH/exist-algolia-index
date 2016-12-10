@@ -1,5 +1,6 @@
 package org.humanistika.exist.index.algolia
 
+import java.util
 import javax.xml.bind.JAXBContext
 
 import org.exist.collections.Collection
@@ -7,15 +8,20 @@ import org.exist.dom.persistent._
 import org.exist.indexing.StreamListener.ReindexMode
 import org.exist.indexing.{IndexController, IndexWorker}
 import org.exist.storage.{DBBroker, NodePath}
-import org.exist.util.{DatabaseConfigurationException, Occurrences}
+import org.exist.util.Occurrences
 import org.exist.xquery.XQueryContext
 import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
-
 import AlgoliaIndexWorker._
+import com.algolia.search.AsyncHttpAPIClientBuilder
+import com.algolia.search.objects.Query
+import org.apache.logging.log4j.{LogManager, Logger}
 
+import scala.collection.JavaConverters._
 
 object AlgoliaIndexWorker {
+  private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndexWorker])
+
   private val CONFIG_ROOT_ELEMENT_NAME = "algolia"
   private val COLLECTION_CONFIG_NS = "http://exist-db.org/collection-config/1.0"
 
@@ -90,9 +96,46 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker) extends IndexWor
   override def scanIndex(context: XQueryContext, documentSet: DocumentSet, nodeSet: NodeSet, map: java.util.Map[_, _]): Array[Occurrences] = ???
 
   override def getQueryRewriter(context: XQueryContext) = null
-  override def getMatchListener(broker: DBBroker, nodeProxy: NodeProxy) = null //TODO(AR) implement is we want to support Kwic etc
+  override def getMatchListener(broker: DBBroker, nodeProxy: NodeProxy) = null //TODO(AR) implement if we want to support Kwic etc
 
   override def removeCollection(collection: Collection, broker: DBBroker, reindex: Boolean) {
+    val maybeCollectionAlgoliaConf: Option[Algolia] = Option(collection.getConfiguration(broker))
+        .flatMap(collectionConfig => Option(collectionConfig.getIndexConfiguration)
+          .flatMap(indexSpec => Option(indexSpec.getCustomIndexSpec(AlgoliaIndex.ID)).map(_.asInstanceOf[Algolia])))
+
+    maybeCollectionAlgoliaConf match {
+      case None =>
+        LOG.error("Cannot remove Algolia indexes for collection {}, no collection config found!", collection.getURI)
+
+      case Some(collectionAlgoliaConf) =>
+        index.getAuthentication match {
+          case None =>
+            LOG.error("Cannot remove Algolia indexes for collection {}, no Authentication credentials provided", collection.getURI)
+
+          case Some(auth) =>
+            val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
+              //TODO(AR) what other config should we support?
+              //.setObjectMapper(indexableRootObjectMapper)
+              .build()
+
+
+            val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
+            for (indexName <- indexNames) {
+              val index = client.initIndex(indexName, classOf[IndexableRootObject])
+              val queryByCollection = new Query()
+              queryByCollection.setAttributesToRetrieve(util.Arrays.asList("objectId"))
+
+              //TODO(AR) Async API has no deleteByQuery - switch to sync API and wrap in our own Async stuff!
+
+              //TODO(AR) how to search by part of objectID? otherwise maybe store collectionID separately and search on that?
+
+//              /queryByCollection.
+//              index.search()
+//              index.deleteObjects()
+            }
+        }
+    }
+
     //TODO(AR) implement - remove all entries for this collection
   }
 

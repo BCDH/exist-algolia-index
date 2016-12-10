@@ -14,6 +14,7 @@ libraryDependencies ++= {
   Seq(
     "org.scalaz" %% "scalaz-core" % scalazV,
     "org.exist-db" % "exist-core" % existV % "provided" exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
+    "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % "provided",
     "com.algolia" % "algoliasearch-async" % algoliaV exclude("org.apache.httpcomponents", "*") exclude("com.fasterxml.jackson.core", "jackson-core"),
     "com.algolia" % "algoliasearch-common" % algoliaV,
 

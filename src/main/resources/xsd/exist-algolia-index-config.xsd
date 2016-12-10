@@ -103,6 +103,8 @@
       <xs:enumeration value="integer"/>
       <xs:enumeration value="float"/>
       <xs:enumeration value="boolean"/>
+      <xs:enumeration value="date"/>
+      <xs:enumeration value="dateTime"/>
     </xs:restriction>
   </xs:simpleType>
 </xs:schema>

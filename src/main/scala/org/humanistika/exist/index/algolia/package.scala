@@ -1,0 +1,29 @@
+package org.humanistika.exist.index
+
+import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import org.exist.dom.persistent.{AttrImpl, ElementImpl}
+import org.exist.storage.NodePath
+import org.w3c.dom.{Attr, Element}
+
+import scalaz.\/
+
+/**
+  * Created by aretter on 10/12/2016.
+  */
+package object algolia {
+
+  type Name = String
+  type IndexName = Name
+
+  type ElementOrAttributeImpl = ElementImpl \/ AttrImpl
+  type ElementOrAttribute = Element \/ Attr
+
+  object LiteralTypeConfig extends Enumeration {
+    type LiteralTypeConfig = Value
+    val String, Integer, Float, Boolean, Date, DateTime = Value
+  }
+
+  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionId: Int, documentId: Int, nodeId: Option[String], children: Seq[IndexableAttribute \/ IndexableObject])
+  case class IndexableAttribute(name: Name, nodeId: String,  value: ElementOrAttribute, literalType: LiteralTypeConfig.LiteralTypeConfig)
+  case class IndexableObject(name: Name, nodeId: String,  value: ElementOrAttribute, typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
+}
