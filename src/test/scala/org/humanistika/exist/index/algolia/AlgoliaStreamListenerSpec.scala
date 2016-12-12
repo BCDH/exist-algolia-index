@@ -4,9 +4,6 @@ import org.specs2.Specification
 import AlgoliaStreamListener._
 import org.exist.storage.NodePath
 
-/**
-  * Created by aretter on 09/12/2016.
-  */
 class AlgoliaStreamListenerSpec  extends Specification { def is = s2"""
   This is a specification to check the AlgoliaStreamListener
 

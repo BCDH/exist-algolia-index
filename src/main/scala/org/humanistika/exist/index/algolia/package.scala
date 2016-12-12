@@ -7,9 +7,6 @@ import org.w3c.dom.{Attr, Element}
 
 import scalaz.\/
 
-/**
-  * Created by aretter on 10/12/2016.
-  */
 package object algolia {
 
   type Name = String
@@ -18,12 +15,17 @@ package object algolia {
   type ElementOrAttributeImpl = ElementImpl \/ AttrImpl
   type ElementOrAttribute = Element \/ Attr
 
+  type IndexableAttributeOrObject = IndexableAttribute \/ IndexableObject
+
   object LiteralTypeConfig extends Enumeration {
     type LiteralTypeConfig = Value
     val String, Integer, Float, Boolean, Date, DateTime = Value
   }
 
   @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionId: Int, documentId: Int, nodeId: Option[String], children: Seq[IndexableAttribute \/ IndexableObject])
-  case class IndexableAttribute(name: Name, nodeId: String,  value: ElementOrAttribute, literalType: LiteralTypeConfig.LiteralTypeConfig)
-  case class IndexableObject(name: Name, nodeId: String,  value: ElementOrAttribute, typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
+  case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
+  case class IndexableObject(name: Name, values: IndexableValues, typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
+
+  type IndexableValues = Seq[IndexableValue]
+  case class IndexableValue(id: String, value: ElementOrAttribute)
 }

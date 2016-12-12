@@ -57,8 +57,6 @@ class AlgoliaIndex extends AbstractIndex {
 
       case Some(auth) =>
         val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-          //TODO(AR) what other config should we support?
-          //.setObjectMapper(indexableRootObjectMapper)
           .build()
 
         val indexes = client.listIndices().get().asScala.map(indexAttributes => (indexAttributes.getName -> client.initIndex(indexAttributes.getName, classOf[IndexableRootObject])))

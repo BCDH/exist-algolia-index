@@ -17,9 +17,6 @@ import org.w3c.dom.{Element, Node}
 import scalaz._
 import Scalaz._
 
-/**
-  * Created by aretter on 04/12/2016.
-  */
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
   override def serialize(value: IndexableRootObject, gen: JsonGenerator, serializers: SerializerProvider): Unit = {
     gen.writeStartObject()
@@ -46,45 +43,102 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
   }
 
   private def serializeAttribute(attr: IndexableAttribute, gen: JsonGenerator, serializers: SerializerProvider) {
-    val value = attr.value match {
-      case -\/(element) =>
+    val values: Seq[String] = attr.values.map( _ match {
+      case IndexableValue(id, -\/(element)) =>
         serializeAsText(element)
-      case \/-(attribute) =>
+      case IndexableValue(id, \/-(attribute)) =>
         attribute.getValue
-    }
+    })
 
-    attr.literalType match {
+    if(values.size > 1) {
+      gen.writeArrayFieldStart(attr.name)
+      writeValueFields(gen, attr.literalType, values)
+      gen.writeEndArray()
+    } else {
+      writeKeyValueField(gen, attr.literalType)(attr.name, values(0))
+    }
+  }
+
+  private def writeKeyValueField(gen: JsonGenerator, literalType: LiteralTypeConfig): (String, String) => Unit = {
+    (key, value) =>
+      literalType match {
+        case LiteralTypeConfig.Integer =>
+          gen.writeNumberField(key, value.toInt)
+        case LiteralTypeConfig.Float =>
+          gen.writeNumberField(key, value.toFloat)
+        case LiteralTypeConfig.Boolean =>
+          gen.writeBooleanField(key, value.toBoolean)
+        case LiteralTypeConfig.String =>
+          gen.writeStringField(key, value)
+        case LiteralTypeConfig.Date =>
+          gen.writeNumberField(key, DatatypeConverter.parseDate(value).getTimeInMillis)
+        case LiteralTypeConfig.DateTime =>
+          gen.writeNumberField(key, DatatypeConverter.parseDateTime(value).getTimeInMillis)
+      }
+  }
+
+  private def writeValueFields(gen: JsonGenerator, literalType: LiteralTypeConfig, values: Seq[String]) {
+    for(value <- values) {
+      writeValueField(gen, literalType, value)
+    }
+  }
+
+  private def writeValueField(gen: JsonGenerator, literalType: LiteralTypeConfig, value: String) {
+    literalType match {
       case LiteralTypeConfig.Integer =>
-        gen.writeNumberField(attr.name, value.toInt)
+        gen.writeNumber(value.toInt)
       case LiteralTypeConfig.Float =>
-        gen.writeNumberField(attr.name, value.toFloat)
+        gen.writeNumber(value.toFloat)
       case LiteralTypeConfig.Boolean =>
-        gen.writeBooleanField(attr.name, value.toBoolean)
+        gen.writeBoolean(value.toBoolean)
       case LiteralTypeConfig.String =>
-        gen.writeStringField(attr.name, value)
+        gen.writeString(value)
       case LiteralTypeConfig.Date =>
-        gen.writeNumberField(attr.name, DatatypeConverter.parseDate(value).getTimeInMillis)
+        gen.writeNumber(DatatypeConverter.parseDate(value).getTimeInMillis)
       case LiteralTypeConfig.DateTime =>
-        gen.writeNumberField(attr.name, DatatypeConverter.parseDateTime(value).getTimeInMillis)
+        gen.writeNumber(DatatypeConverter.parseDateTime(value).getTimeInMillis)
     }
   }
 
   private def serializeObject(obj: IndexableObject, gen: JsonGenerator, serializers: SerializerProvider) {
-    obj.value match {
-      case -\/(element) =>
-        gen.writeObjectFieldStart(obj.name)
-        gen.writeStringField("nodeId", obj.nodeId)
+    def serialize(element: Element) = {
+      val json = serializeAsJson(element, obj.typeMappings)
+      val jsonBody = jsonObjectAsObjectBody(json)
+      gen.writeRaw(',')
+      gen.writeRaw(jsonBody)
+    }
 
-        val json = serializeAsJson(element, obj.typeMappings)
-        val jsonBody = jsonObjectAsObjectBody(json)
-        gen.writeRaw(',')
-        gen.writeRaw(jsonBody)
+    if(obj.values.size > 1) {
+      gen.writeArrayFieldStart(obj.name)
 
-        gen.writeEndObject()
+      obj.values.map(_ match {
+        case IndexableValue(id, -\/(element)) =>
+          gen.writeStartObject()
+          gen.writeStringField("nodeId", id)
 
-      case attr @ \/-(attribute) =>
-        //a org.w3c.dom.Attr can never be converted to an object, so just serialize the value as a String field
-        serializeAttribute(IndexableAttribute(obj.name, obj.nodeId, attr, LiteralTypeConfig.String), gen, serializers)
+          serialize(element)
+
+          gen.writeEndObject()
+        case IndexableValue(_, \/-(attribute)) =>
+          writeValueField(gen, LiteralTypeConfig.String, attribute.getValue)
+      })
+
+      gen.writeEndArray()
+
+    } else {
+      obj.values.map(_ match {
+        case IndexableValue(id, -\/(element)) =>
+          gen.writeObjectFieldStart(obj.name)
+          gen.writeStringField("nodeId", id)
+
+          serialize(element)
+
+          gen.writeEndObject()
+
+        case IndexableValue(_, \/-(attribute)) =>
+          //a org.w3c.dom.Attr can never be converted to an object, so just serialize the value as a String field
+          writeKeyValueField(gen, LiteralTypeConfig.String)(obj.name, attribute.getValue)
+      })
     }
   }
 

@@ -1,18 +1,17 @@
 package org.humanistika.exist.index.algolia
 
-import java.util.{Map => JMap, HashMap => JHashMap}
+import java.util.{Properties, HashMap => JHashMap, Map => JMap}
 
-import org.exist.dom.persistent.{AttrImpl, ElementImpl}
+import org.exist.dom.persistent.{AttrImpl, ElementImpl, NodeProxy}
 import org.exist.indexing.AbstractStreamListener
-import org.exist.storage.NodePath
+import org.exist.storage.{DBBroker, NodePath}
 import org.exist.storage.txn.Txn
 import AlgoliaStreamListener._
 import com.algolia.search.{AsyncHttpAPIClientBuilder, AsyncIndex}
-import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import org.apache.logging.log4j.{LogManager, Logger}
+import org.exist.dom.memtree.{DocumentBuilderReceiver, MemTreeBuilder}
 import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
-import org.w3c.dom.{Attr, Element}
 
 import scala.collection.JavaConverters._
 import scalaz._
@@ -23,6 +22,31 @@ object AlgoliaStreamListener {
 
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaStreamListener])
 
+  implicit class ElementImplUtils(element: org.exist.dom.persistent.ElementImpl) {
+    def toInMemory(broker: DBBroker) : org.exist.dom.memtree.ElementImpl = {
+      val builder = new MemTreeBuilder
+      builder.startDocument()
+      val receiver = new DocumentBuilderReceiver(builder, true)
+
+      val nodeNr = builder.getDocument().getLastNode()
+      val nodeProxy = new NodeProxy(element.getOwnerDocument, element.getNodeId)
+      nodeProxy.toSAX(broker, receiver, new Properties())
+
+      builder.getDocument().getNode(nodeNr + 1).asInstanceOf[org.exist.dom.memtree.ElementImpl]
+    }
+  }
+
+  implicit class AttrImplUtils(attr: org.exist.dom.persistent.AttrImpl) {
+    def toInMemory(broker: DBBroker) : org.exist.dom.memtree.AttrImpl = {
+      val element = attr.getParentNode.asInstanceOf[ElementImpl].toInMemory(broker)
+      Option(attr.getNamespaceURI) match {
+        case Some(ns) =>
+          element.getAttributeNodeNS(ns, attr.getLocalName).asInstanceOf[org.exist.dom.memtree.AttrImpl]
+        case None =>
+          element.getAttributeNode(attr.getNodeName).asInstanceOf[org.exist.dom.memtree.AttrImpl]
+      }
+    }
+  }
 
   /**
     * Additional functions for {@link or.exist.storage.NodePath}
@@ -101,7 +125,7 @@ object AlgoliaStreamListener {
   }
 }
 
-class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStreamListener {
+class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) extends AbstractStreamListener {
 
   private val ns: JMap[String, String] = new JHashMap
   private var rootObjectConfigs: Seq[(IndexName, RootObject)] = Seq.empty
@@ -212,6 +236,41 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStr
   private def isElementRootObject(path: NodePath)(rootObject: RootObject) = nodePath(ns, rootObject.getPath) == path
 
   private def updateProcessingChildren(path: NodePath, node: ElementOrAttributeImpl) {
+
+    def nodeIdStr(node: ElementOrAttributeImpl) : String = node.fold(_.getNodeId.toString, _.getNodeId.toString)
+
+    def mergeIndexableChildren(existingChildren: Seq[IndexableAttributeOrObject], newChildren: Seq[IndexableAttributeOrObject]): Seq[IndexableAttributeOrObject] = {
+
+      def name(node: IndexableAttributeOrObject): String = node.fold(_.name, _.name)
+
+      def getMatchingNewChildren(existingChild: IndexableAttributeOrObject): Seq[IndexableAttributeOrObject] = {
+        newChildren.collect {
+          case la @ -\/(newIndexableAttribute) if(existingChild.isLeft && name(existingChild) == newIndexableAttribute.name) =>
+            la
+          case ro @ \/-(newIndexableObject) if(existingChild.isRight && name(existingChild) == newIndexableObject.name) =>
+            ro
+        }
+      }
+
+      def sameSide[L,R](a: \/[L, R], b: \/[L,R]): Boolean = (a.isLeft && b.isLeft) || (a.isRight && b.isRight)
+
+      // step 1, add any newChildren.value to the existingChildren where they match
+      val updatedExistingChildren: Seq[IndexableAttributeOrObject] = existingChildren.map{ existingChild =>
+        val matchingNewValues: IndexableValues = getMatchingNewChildren(existingChild).flatMap(_.fold(_.values, _.values))
+        existingChild
+          .map(existingObj => existingObj.copy(values = (existingObj.values ++ matchingNewValues)))
+          .leftMap(existingAttr => existingAttr.copy(values = (existingAttr.values ++ matchingNewValues)))
+      }
+
+      // step 2, add any newChildren which don't have existingChildren matches
+      val nonExistingNewChildren = newChildren.filter(newChild =>
+        existingChildren.find(existingChild =>
+          sameSide(newChild, existingChild) && name(newChild) == name(existingChild)).empty
+      )
+
+      updatedExistingChildren ++ nonExistingNewChildren
+    }
+
     // find any PartialRootObjects which *may* have objects or attributes that match this element or attribute
     val ofInterest = processing
       .filterKeys(path.startsWith(_))
@@ -221,18 +280,16 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStr
       (rootObjectNodePath, partialRootObjects) <- ofInterest;
       partialRootObject <- partialRootObjects
     ) {
-      val nodeId = node.fold(_.getNodeId, _.getNodeId).toString
-
       val attributesConfig = partialRootObject.config.getAttribute.asScala
         .filter(attrConf => rootObjectNodePath.appendNew(nodePath(ns, attrConf.getPath)).equals(path))
-      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, nodeId, node, typeOrDefault(attrConfig.getType)))
+      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), node.map(_.toInMemory(broker)))), typeOrDefault(attrConfig.getType)))
 
       val objectsConfig = partialRootObject.config.getObject.asScala
         .filter(obj => rootObjectNodePath.appendNew(nodePath(ns, obj.getPath)).equals(path))
-      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, nodeId, node, getObjectMappings(objectConfig)))
+      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), node.map(_.toInMemory(broker)))), getObjectMappings(objectConfig)))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
-        val newChildren: Seq[IndexableAttribute \/ IndexableObject] = partialRootObject.indexable.children ++ objects.map(_.right) ++ attributes.map(_.left)
+        val newChildren : Seq[IndexableAttribute \/ IndexableObject] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.right) ++ attributes.map(_.left))
         val newPartialRootObject = partialRootObject.copy(indexable = partialRootObject.indexable.copy(children = newChildren))
         val newPartialRootObjects = this.processing(rootObjectNodePath).filterNot(_ == partialRootObject) :+ newPartialRootObject
 
@@ -253,8 +310,6 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker) extends AbstractStr
 
       case Some(auth) =>
         val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-          //TODO(AR) what other config should we support?
-          //.setObjectMapper(indexableRootObjectMapper)
           .build()
 
         val index = indexes.get(indexName) match {

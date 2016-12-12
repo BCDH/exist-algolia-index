@@ -33,7 +33,7 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker) extends IndexWor
 
   private var indexConfig: Option[Algolia] = None
   private val currentContext = Context(None, None)
-  private val listener = new AlgoliaStreamListener(this)
+  private val listener = new AlgoliaStreamListener(this, broker)
 
   def getIndex = index
 
@@ -114,8 +114,6 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker) extends IndexWor
 
           case Some(auth) =>
             val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-              //TODO(AR) what other config should we support?
-              //.setObjectMapper(indexableRootObjectMapper)
               .build()
 
 
