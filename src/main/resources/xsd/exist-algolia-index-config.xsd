@@ -1,12 +1,56 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" targetNamespace="http://exist-db.org/collection-config/1.0" xmlns:c="http://exist-db.org/collection-config/1.0">
 
+  <xs:simpleType name="absoluteElementPathType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?)+"/>
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:simpleType name="absoluteAttributePathType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?)+/@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:simpleType name="relativeAttributeNameType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:simpleType name="absoluteOrRelativeAttributePathType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="c:absoluteAttributePath c:relativeAttributeNameType"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="absoluteElementPathOrRelativeAttributePathType">
+    <xs:union memberTypes="c:absoluteElementPathType c:relativeAttributeNameType"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="absoluteElementPathOrAbsoluteAttributePathType">
+    <xs:union memberTypes="c:absoluteElementPathType c:absoluteAttributePathType"/>
+  </xs:simpleType>
+  
+  <xs:simpleType name="absoluteElementPathOrAbsoluteOrRelativeAttributePathType">
+    <xs:union memberTypes="c:absoluteElementPathType c:absoluteOrRelativeAttributePathType"/>
+  </xs:simpleType>
+
   <xs:attributeGroup name="name">
     <xs:attribute name="name" use="required" type="xs:NCName"/>
   </xs:attributeGroup>
 
-  <xs:attributeGroup name="path">
-    <xs:attribute name="path" use="required" type="xs:string"/>
+  <xs:attributeGroup name="absoluteElementPath">
+    <xs:attribute name="path" use="required" type="c:absoluteElementPathType"/>
+  </xs:attributeGroup>
+
+  <xs:attributeGroup name="absoluteElementPathOrRelativeAttributePath">
+    <xs:attribute name="path" use="required" type="c:absoluteElementPathOrRelativeAttributePathType"/>
+  </xs:attributeGroup>
+  
+  <xs:attributeGroup name="absoluteElementPathOrAbsoluteOrRelativeAttributePath">
+    <xs:attribute name="path" use="required" type="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathType"/>
   </xs:attributeGroup>
 
   <xs:element name="algolia">
@@ -48,6 +92,11 @@
         <xs:element ref="c:rootObject" maxOccurs="unbounded"/>
       </xs:sequence>
       <xs:attributeGroup ref="c:name"/>
+      <xs:attribute name="documentId" use="optional" type="c:absoluteElementPathOrAbsoluteAttributePathType">
+        <xs:annotation>
+          <xs:documentation>Indicates an element or attribute to use the value of as a unique id for the document, if ommitted the document's id is used</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
     </xs:complexType>
   </xs:element>
 
@@ -60,9 +109,14 @@
         <xs:element ref="c:object" minOccurs="0" maxOccurs="unbounded"/>
         <xs:element ref="c:attribute"  minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
-      <xs:attribute name="path" use="optional" default="/" type="xs:string">
+      <xs:attribute name="path" use="optional" default="/" type="c:absoluteElementPathType">
         <xs:annotation>
           <xs:documentation>The path for the rootObject, defaults to '/' which means one rootObject per document. By setting this to a path within a document, you can create multiple root objects per document.</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="nodeId" use="optional" type="c:relativeAttributeNameType">
+        <xs:annotation>
+          <xs:documentation>Indicates an attribute on the element to use as a unique id for the attribute within the document, if ommitted the node's id is used</xs:documentation>
         </xs:annotation>
       </xs:attribute>
     </xs:complexType>
@@ -77,21 +131,21 @@
         <xs:element ref="c:mapping" minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
       <xs:attributeGroup ref="c:name"/>
-      <xs:attributeGroup ref="c:path"/>
+      <xs:attributeGroup ref="c:absoluteElementPath"/>
     </xs:complexType>
   </xs:element>
 
   <xs:element name="attribute">
     <xs:complexType>
       <xs:attributeGroup ref="c:name"/>
-      <xs:attributeGroup ref="c:path"/>
+      <xs:attributeGroup ref="c:absoluteElementPathOrAbsoluteOrRelativeAttributePath"/>
       <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
     </xs:complexType>
   </xs:element>
 
   <xs:element name="mapping">
     <xs:complexType>
-      <xs:attributeGroup ref="c:path"/>
+      <xs:attributeGroup ref="c:absoluteElementPathOrAbsoluteOrRelativeAttributePath"/>
       <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
       <xs:attribute name="name" use="optional" type="xs:NCName"/>
     </xs:complexType>

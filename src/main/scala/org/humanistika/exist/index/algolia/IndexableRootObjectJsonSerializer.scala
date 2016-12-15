@@ -1,18 +1,13 @@
 package org.humanistika.exist.index.algolia
 
-import java.io.StringWriter
-import java.util.Properties
 import javax.xml.bind.DatatypeConverter
-import javax.xml.transform.dom.DOMSource
-import javax.xml.transform.sax.SAXResult
-import javax.xml.transform.{OutputKeys, TransformerFactory}
 
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
-import org.exist.storage.NodePath
-import org.exist.util.serializer.{SAXSerializer, SerializerPool}
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
-import org.w3c.dom.{Element, Node}
+import org.w3c.dom.Element
+
+import Serializer._
 
 import scalaz._
 import Scalaz._
@@ -142,23 +137,6 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
     }
   }
 
-  private lazy val serializerPool = SerializerPool.getInstance
-  private lazy val transformerFactory : TransformerFactory = new net.sf.saxon.TransformerFactoryImpl
-
-  private def serializeAsText(node: Node) : String = {
-    val properties = new Properties()
-    properties.setProperty(OutputKeys.METHOD, "text")
-    serialize(node, properties)
-  }
-
-  private def serializeAsJson(element: Element, typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]) : String = {
-    //TODO(AR) need to set the type/name mappings
-    val properties = new Properties()
-    properties.setProperty(OutputKeys.METHOD, "json")
-    properties.setProperty(OutputKeys.INDENT, "no")
-    serialize(element, properties)
-  }
-
   private def jsonObjectAsObjectBody(json: String): String = {
     var tmp: String = json
     if(tmp.startsWith("{ ")) {
@@ -177,24 +155,5 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
     tmp = tmp.replaceAll("""\s+(?=([^"]*"[^"]*")*[^"]*$)""", "")    //TODO(AR) this is only needed until JSONWriter in exist adheres to indent=no
 
     tmp
-  }
-
-  private def serialize(node: Node, properties: Properties) : String = {
-    val handler = serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer]
-    try {
-      val writer = new StringWriter()
-      try {
-        handler.setOutput(writer, properties)
-
-        val transformer = transformerFactory.newTransformer()
-        val result = new SAXResult(handler)
-        transformer.transform(new DOMSource(node), result)
-        return writer.toString
-      } finally {
-        writer.close
-      }
-    } finally {
-      serializerPool.returnObject(handler)
-    }
   }
 }

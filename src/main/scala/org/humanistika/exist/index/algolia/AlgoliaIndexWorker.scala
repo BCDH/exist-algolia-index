@@ -13,6 +13,7 @@ import org.exist.xquery.XQueryContext
 import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
+import akka.actor.ActorSystem
 import com.algolia.search.AsyncHttpAPIClientBuilder
 import com.algolia.search.objects.Query
 import org.apache.logging.log4j.{LogManager, Logger}
@@ -29,11 +30,11 @@ object AlgoliaIndexWorker {
 }
 
 
-class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker) extends IndexWorker {
+class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSystem) extends IndexWorker {
 
   private var indexConfig: Option[Algolia] = None
   private val currentContext = Context(None, None)
-  private val listener = new AlgoliaStreamListener(this, broker)
+  private val listener = new AlgoliaStreamListener(this, broker, system)
 
   def getIndex = index
 

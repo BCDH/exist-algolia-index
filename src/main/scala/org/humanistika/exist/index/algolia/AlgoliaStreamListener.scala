@@ -12,6 +12,10 @@ import org.apache.logging.log4j.{LogManager, Logger}
 import org.exist.dom.memtree.{DocumentBuilderReceiver, MemTreeBuilder}
 import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
+import Serializer._
+import akka.actor.{ActorPath, ActorSystem}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingActor
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingActor.Add
 
 import scala.collection.JavaConverters._
 import scalaz._
@@ -28,11 +32,11 @@ object AlgoliaStreamListener {
       builder.startDocument()
       val receiver = new DocumentBuilderReceiver(builder, true)
 
-      val nodeNr = builder.getDocument().getLastNode()
+      val nodeNr = builder.getDocument.getLastNode
       val nodeProxy = new NodeProxy(element.getOwnerDocument, element.getNodeId)
       nodeProxy.toSAX(broker, receiver, new Properties())
 
-      builder.getDocument().getNode(nodeNr + 1).asInstanceOf[org.exist.dom.memtree.ElementImpl]
+      builder.getDocument.getNode(nodeNr + 1).asInstanceOf[org.exist.dom.memtree.ElementImpl]
     }
   }
 
@@ -49,7 +53,8 @@ object AlgoliaStreamListener {
   }
 
   /**
-    * Additional functions for {@link or.exist.storage.NodePath}
+    * Additional functions for
+    * {@link or.exist.storage.NodePath}
     */
   implicit class NodePathUtils(nodePath: NodePath) {
 
@@ -68,14 +73,14 @@ object AlgoliaStreamListener {
       }
     }
 
-    def duplicate() = new NodePath(nodePath)
+    def duplicate = new NodePath(nodePath)
 
     /**
       * Creates a new NodePath which is equivalent
       * to the path of /a/b
       */
     def appendNew(other: NodePath): NodePath = {
-      val result = nodePath.duplicate()
+      val result = nodePath.duplicate
       result.append(other)
       result
     }
@@ -93,7 +98,9 @@ object AlgoliaStreamListener {
       .getOrElse(new NodePath())
   }
 
-  case class PartialRootObject(indexName: IndexName, config: RootObject, indexable: IndexableRootObject) {
+  case class UserSpecifiedDocumentId(path: NodePath, value: Option[String])
+
+  case class PartialRootObject(indexName: IndexName, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], config: RootObject, indexable: IndexableRootObject) {
     def identityEquals(other: PartialRootObject) : Boolean = {
       indexName == other.indexName &&
         indexable.documentId.equals(other.indexable.documentId) &&
@@ -125,22 +132,25 @@ object AlgoliaStreamListener {
   }
 }
 
-class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) extends AbstractStreamListener {
+class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, system: ActorSystem) extends AbstractStreamListener {
+
+  private val incrementalIndexingActor = system.actorSelection(ActorPath.fromString(s"/${AlgoliaIndex.SYSTEM_NAME}/user/${classOf[IncrementalIndexingActor].getSimpleName}"))
 
   private val ns: JMap[String, String] = new JHashMap
+  private var indexConfigs: Map[IndexName, org.exist_db.collection_config._1.Index] = Map.empty
   private var rootObjectConfigs: Seq[(IndexName, RootObject)] = Seq.empty
 
   private var processing: Map[NodePath, Seq[PartialRootObject]] = Map.empty
-  private var indexes: Map[IndexName, AsyncIndex[IndexableRootObject]] = Map.empty
 
 
   def configure(config: Algolia) {
     this.ns.clear()
     getNamespaceMappings(config).foreach { case (k, v) => ns.put(k, v) }
     this.rootObjectConfigs = config.getIndex.asScala.flatMap(index => index.getRootObject.asScala.map(rootObject => (index.getName, rootObject)))
+    this.indexConfigs = config.getIndex.asScala.map(index => index.getName -> index).toMap
   }
 
-  override def getWorker = indexWorker
+  override def getWorker: AlgoliaIndexWorker = indexWorker
 
   override def startIndexDocument(transaction: Txn) {
 
@@ -150,7 +160,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
     if (documentRootObjects.nonEmpty) {
       // as we are just starting a document,
       // we aren't processing these yet, so let's record them
-      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, Seq.empty)))
+      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, userSpecifiedDocumentId(rootObjectConfig._1), rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, Seq.empty)))
       this.processing = processing + (DOCUMENT_NODE_PATH -> processingAtPath)
     }
 
@@ -158,6 +168,21 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
   }
 
   override def startElement(transaction: Txn, element: ElementImpl, path: NodePath) {
+    def getUserProvidedNodeId(rootObjectConfig: RootObject, element: ElementImpl): Option[String] = {
+      // get the nodeId attribute value for rootObjectConfig from element
+      Option(rootObjectConfig.getNodeId)
+        .flatMap {
+          case attrName if attrName.contains(':') =>
+            val sepIdx = attrName.indexOf(':')
+            val prefix = attrName.substring(0, sepIdx)
+            val localPart = attrName.substring(sepIdx + 1)
+            Option(element.getAttributeNS(ns.get(prefix), localPart))
+
+          case attrName =>
+            Option(element.getAttribute(attrName))
+        }
+    }
+
     val pathClone = new NodePath(path)
 
     // find any new RootObjects that we should start processing
@@ -165,7 +190,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
 
     if (elementRootObjects.nonEmpty) {
       // record the new RootObjects that we are processing
-      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, Some(element.getNodeId.toString), Seq.empty)))
+      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, userSpecifiedDocumentId(rootObjectConfig._1), rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, Some(element.getNodeId.toString), getUserProvidedNodeId(rootObjectConfig._2, element), Seq.empty)))
       val processingAtPath = processing.get(pathClone) match {
         case Some(existingElementRootObjects) =>
           // we filter out newElementRootObjects that are equivalent to elementRootObjects which we are already processing
@@ -175,6 +200,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
       }
       this.processing = processing + (pathClone -> processingAtPath)
     }
+
+    // update any PartialRootObjects which need userSpecifiedDocumentIds which match this element
+    updateUserSpecifiedDocumentIds(pathClone, element.left)
 
     // update any PartialRootObjects children which match this element
     updateProcessingChildren(pathClone, element.left)
@@ -186,6 +214,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
     val pathClone = new NodePath(path)
     pathClone.addComponent(attrib.getQName)
 
+    // update any PartialRootObjects which need userSpecifiedDocumentIds which match this element
+    updateUserSpecifiedDocumentIds(pathClone, attrib.right)
+
     // update any PartialRootObjects children which match this element
     updateProcessingChildren(pathClone, attrib.right)
 
@@ -196,12 +227,14 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
     val pathClone = new NodePath(path)
 
     // find any new RootObjects that we should finish processing
-    val elementRootObjects = processing.get(pathClone).getOrElse(Seq.empty)
-
+    // they must match the nodePath and also have a userSpecifiedDocumentId
+    // if configured to do so
+    val elementRootObjects = processing.getOrElse(pathClone, Seq.empty)
+          .filterNot(_.userSpecifiedDocumentId.map(_.value.empty).getOrElse(false))
     if (elementRootObjects.nonEmpty) {
       // index them
       elementRootObjects
-        .map(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.userSpecifiedDocumentId.map(_.value), partialRootObject.indexable))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.filterKeys(_ != pathClone)
@@ -212,13 +245,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
 
   override def endIndexDocument(transaction: Txn) {
 
-    // find any new RootObjects that we should finish processing
-    val documentRootObjects = processing.get(DOCUMENT_NODE_PATH).getOrElse(Seq.empty)
+    // find any outstanding RootObjects that we should finish processing
+    val documentRootObjects = processing.values.flatten
 
     if (documentRootObjects.nonEmpty) {
       // index them
       documentRootObjects
-        .map(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.filterKeys(_ != DOCUMENT_NODE_PATH)
@@ -227,13 +260,38 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
     super.endIndexDocument(transaction)
   }
 
-  private def isDocumentRootObject(rootObject: RootObject) = {
-    Option(rootObject.getPath)
-      .filterNot(path => path.isEmpty || path.equals("/"))
-      .isEmpty
-  }
+  private def userSpecifiedDocumentId(indexName: String): Option[UserSpecifiedDocumentId] = indexConfigs.get(indexName).flatMap(index => Option(UserSpecifiedDocumentId(nodePath(ns, index.getDocumentId), None)))
+
+  private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
   private def isElementRootObject(path: NodePath)(rootObject: RootObject) = nodePath(ns, rootObject.getPath) == path
+
+  private def getString(node: ElementOrAttributeImpl): String = {
+    node match {
+      case -\/(element) =>
+        serializeAsText(element)
+      case \/-(attribute) =>
+        attribute.getValue
+    }
+  }
+
+  private def updateUserSpecifiedDocumentIds(path: NodePath, node: ElementOrAttributeImpl) {
+    for (
+      (rootObjectNodePath, partialRootObjects) <- processing;
+      partialRootObject <- partialRootObjects if partialRootObject.userSpecifiedDocumentId.nonEmpty
+    ) {
+      partialRootObject.userSpecifiedDocumentId
+        .filter(_.path.equals(path))
+        .map(_.copy(value = Some(getString(node))))
+      match {
+        case newUserSpecifiedDocumentId @ Some(_) =>
+          val newPartialRootObject = partialRootObject.copy(userSpecifiedDocumentId = newUserSpecifiedDocumentId)
+          val newPartialRootObjects = processing(rootObjectNodePath).filterNot(_ == partialRootObject) :+ newPartialRootObject
+          this.processing = this.processing + (rootObjectNodePath -> newPartialRootObjects)
+        case None =>
+      }
+    }
+  }
 
   private def updateProcessingChildren(path: NodePath, node: ElementOrAttributeImpl) {
 
@@ -245,9 +303,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
 
       def getMatchingNewChildren(existingChild: IndexableAttributeOrObject): Seq[IndexableAttributeOrObject] = {
         newChildren.collect {
-          case la @ -\/(newIndexableAttribute) if(existingChild.isLeft && name(existingChild) == newIndexableAttribute.name) =>
+          case la @ -\/(newIndexableAttribute) if existingChild.isLeft && name(existingChild) == newIndexableAttribute.name =>
             la
-          case ro @ \/-(newIndexableObject) if(existingChild.isRight && name(existingChild) == newIndexableObject.name) =>
+          case ro @ \/-(newIndexableObject) if existingChild.isRight && name(existingChild) == newIndexableObject.name =>
             ro
         }
       }
@@ -258,8 +316,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
       val updatedExistingChildren: Seq[IndexableAttributeOrObject] = existingChildren.map{ existingChild =>
         val matchingNewValues: IndexableValues = getMatchingNewChildren(existingChild).flatMap(_.fold(_.values, _.values))
         existingChild
-          .map(existingObj => existingObj.copy(values = (existingObj.values ++ matchingNewValues)))
-          .leftMap(existingAttr => existingAttr.copy(values = (existingAttr.values ++ matchingNewValues)))
+          .map(existingObj => existingObj.copy(values = existingObj.values ++ matchingNewValues))
+          .leftMap(existingAttr => existingAttr.copy(values = existingAttr.values ++ matchingNewValues))
       }
 
       // step 2, add any newChildren which don't have existingChildren matches
@@ -303,31 +361,34 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker) e
   private def getRootObjectConfigs(filter: RootObject => Boolean): Seq[(IndexName, RootObject)] = rootObjectConfigs.filter { case (_, rootObject) => filter(rootObject) }
 
   //INDEX IT!
-  private def index(indexName: IndexName, indexableRootObject: IndexableRootObject) {
-    indexWorker.getIndex.getAuthentication match {
-      case None =>
-        LOG.error("Cannot add object to Algolia index, no Authentication credentials provided")
+  private def index(indexName: IndexName, userSpecifiedDocumentId: Option[String], indexableRootObject: IndexableRootObject) {
+    incrementalIndexingActor ! Add(indexName, userSpecifiedDocumentId, indexableRootObject)
 
-      case Some(auth) =>
-        val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-          .build()
 
-        val index = indexes.get(indexName) match {
-          case Some(idx) => idx
-          case None =>
-            val idx = client.initIndex(indexName, classOf[IndexableRootObject])
-            indexes += (indexName -> idx)
-            idx
-        }
-
-        //TODO(AR) batch up objects
-        val futIndexedObject = index.addObject(indexableRootObject)
-
-        //TODO(AR) make async... .get will Await
-        val indexedId = futIndexedObject.get().getObjectID
-        if(LOG.isTraceEnabled()) {
-          LOG.trace("Indexed: {}", indexedId)
-        }
-    }
+//    indexWorker.getIndex.getAuthentication match {
+//      case None =>
+//        LOG.error("Cannot add object to Algolia index, no Authentication credentials provided")
+//
+//      case Some(auth) =>
+//        val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
+//          .build()
+//
+//        val index = indexes.get(indexName) match {
+//          case Some(idx) => idx
+//          case None =>
+//            val idx = client.initIndex(indexName, classOf[IndexableRootObject])
+//            indexes += (indexName -> idx)
+//            idx
+//        }
+//
+//        //TODO(AR) batch up objects
+//        val futIndexedObject = index.addObject(indexableRootObject)
+//
+//        //TODO(AR) make async... .get will Await
+//        val indexedId = futIndexedObject.get().getObjectID
+//        if(LOG.isTraceEnabled()) {
+//          LOG.trace("Indexed: {}", indexedId)
+//        }
+//    }
   }
 }

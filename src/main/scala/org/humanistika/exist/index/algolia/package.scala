@@ -22,7 +22,11 @@ package object algolia {
     val String, Integer, Float, Boolean, Date, DateTime = Value
   }
 
-  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionId: Int, documentId: Int, nodeId: Option[String], children: Seq[IndexableAttribute \/ IndexableObject])
+  type UserSpecifiedNodeId = String
+
+  //TODO(AR) need to cope with documentId attribute on <index> element
+
+  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionId: Int, documentId: Int, nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[IndexableAttribute \/ IndexableObject])
   case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
   case class IndexableObject(name: Name, values: IndexableValues, typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
 

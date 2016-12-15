@@ -7,21 +7,27 @@ import org.exist.indexing.{AbstractIndex, IndexWorker}
 import org.exist.storage.{BrokerPool, DBBroker}
 import org.w3c.dom.Element
 import AlgoliaIndex._
+import akka.actor.{ActorSystem, Props}
 import com.algolia.search.AsyncHttpAPIClientBuilder
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingActor
 
 import scala.collection.JavaConverters._
 
 object AlgoliaIndex {
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndex])
-  val ID = AlgoliaIndex.getClass.getName
-
+  val ID: String = AlgoliaIndex.getClass.getName
+  val SYSTEM_NAME = "AlgoliaIndex"
   case class Authentication(applicationId: String, adminApiKey: String)
 }
 
 class AlgoliaIndex extends AbstractIndex {
+  private var system: Option[ActorSystem] = None
   private var apiAuthentication: Option[Authentication] = None
 
   override def open() {
+    system = Some(ActorSystem(SYSTEM_NAME))
+    system.foreach(_.actorOf(Props[IncrementalIndexingActor]))
+
     // recommended by Algolia
     java.security.Security.setProperty("networkaddress.cache.ttl", "60")
   }
@@ -41,13 +47,20 @@ class AlgoliaIndex extends AbstractIndex {
     super.configure(pool, dataDir, config)
   }
 
-  override def close() {}
-
-  override def getWorker(broker: DBBroker): IndexWorker = {
-    new AlgoliaIndexWorker(this, broker)
+  override def close() {
+    system.foreach(_.shutdown())
   }
 
-  def getAuthentication = apiAuthentication
+  override def getWorker(broker: DBBroker): IndexWorker = {
+    system match {
+      case Some(sys) if !sys.isTerminated =>
+        new AlgoliaIndexWorker(this, broker, sys)
+      case _ =>
+        null
+    }
+  }
+
+  def getAuthentication: Option[Authentication] = apiAuthentication
 
   override def remove(): Unit = {
     //delete all the Algolia indexes?
@@ -67,7 +80,7 @@ class AlgoliaIndex extends AbstractIndex {
 
         LOG.info("Delete Algolia indexes")
         if(LOG.isTraceEnabled()) {
-          results.map(result => LOG.trace("Deleted Algolia index: {}", result._1))
+          results.foreach(result => LOG.trace("Deleted Algolia index: {}", result._1))
         }
     }
   }
