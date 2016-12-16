@@ -5,6 +5,7 @@ import javax.xml.bind.DatatypeConverter
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
+import IndexableRootObjectJsonSerializer._
 import org.w3c.dom.Element
 
 import Serializer._
@@ -12,11 +13,20 @@ import Serializer._
 import scalaz._
 import Scalaz._
 
+object IndexableRootObjectJsonSerializer {
+  val OBJECT_ID_FIELD_NAME = "objectID"
+  val COLLECTION_PATH_FIELD_NAME = "collection"
+}
+
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
   override def serialize(value: IndexableRootObject, gen: JsonGenerator, serializers: SerializerProvider): Unit = {
     gen.writeStartObject()
 
-    gen.writeStringField("objectID", value.collectionId + "/" + value.documentId + "/" + value.nodeId.getOrElse(0))
+    val objectId = value.userSpecifiedNodeId.getOrElse(s"${value.collectionId}/${value.documentId}/${value.nodeId.getOrElse(0)}")
+    gen.writeStringField(OBJECT_ID_FIELD_NAME, objectId)
+
+    gen.writeStringField(COLLECTION_PATH_FIELD_NAME, value.collectionPath)
+
 //    gen.writeNumberField("collId", value.collectionId)
 //    gen.writeNumberField("docId", value.documentId)
 //    value.nodeId.map(gen.writeStringField("nodeId", _))

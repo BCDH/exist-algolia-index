@@ -13,10 +13,10 @@ import org.exist.xquery.XQueryContext
 import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
-import akka.actor.ActorSystem
-import com.algolia.search.AsyncHttpAPIClientBuilder
+import akka.actor.{ActorPath, ActorSystem}
 import com.algolia.search.objects.Query
 import org.apache.logging.log4j.{LogManager, Logger}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 
 import scala.collection.JavaConverters._
 
@@ -27,11 +27,13 @@ object AlgoliaIndexWorker {
   private val COLLECTION_CONFIG_NS = "http://exist-db.org/collection-config/1.0"
 
   case class Context(var document: Option[DocumentImpl], var mode: Option[ReindexMode])
+
+  case class RemoveForCollection(indexName: IndexName, collectionPath: String)
 }
 
 
 class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSystem) extends IndexWorker {
-
+  private val incrementalIndexingActor = system.actorSelection(ActorPath.fromString(s"akka://${AlgoliaIndex.SYSTEM_NAME}/user/${IncrementalIndexingManagerActor.ACTOR_NAME}"))
   private var indexConfig: Option[Algolia] = None
   private val currentContext = Context(None, None)
   private val listener = new AlgoliaStreamListener(this, broker, system)
@@ -109,36 +111,16 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
         LOG.error("Cannot remove Algolia indexes for collection {}, no collection config found!", collection.getURI)
 
       case Some(collectionAlgoliaConf) =>
-        index.getAuthentication match {
-          case None =>
-            LOG.error("Cannot remove Algolia indexes for collection {}, no Authentication credentials provided", collection.getURI)
-
-          case Some(auth) =>
-            val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-              .build()
-
-
-            val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
-            for (indexName <- indexNames) {
-              val index = client.initIndex(indexName, classOf[IndexableRootObject])
-              val queryByCollection = new Query()
-              queryByCollection.setAttributesToRetrieve(util.Arrays.asList("objectId"))
-
-              //TODO(AR) Async API has no deleteByQuery - switch to sync API and wrap in our own Async stuff!
-
-              //TODO(AR) how to search by part of objectID? otherwise maybe store collectionID separately and search on that?
-
-//              /queryByCollection.
-//              index.search()
-//              index.deleteObjects()
-            }
+        val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
+        for (indexName <- indexNames) {
+          incrementalIndexingActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
         }
     }
 
     //TODO(AR) implement - remove all entries for this collection
   }
 
-  override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = ???
+  override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]
 
   override def getIndexId: String = AlgoliaIndex.ID
 

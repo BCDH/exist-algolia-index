@@ -1,5 +1,7 @@
 package org.humanistika.exist.index
 
+import java.nio.file.Path
+
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import org.exist.dom.persistent.{AttrImpl, ElementImpl}
 import org.exist.storage.NodePath
@@ -24,12 +26,16 @@ package object algolia {
 
   type UserSpecifiedNodeId = String
 
-  //TODO(AR) need to cope with documentId attribute on <index> element
+  type CollectionPath = String
+  type CollectionId = Int
+  type DocumentId = Int
 
-  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionId: Int, documentId: Int, nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[IndexableAttribute \/ IndexableObject])
+  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[IndexableAttribute \/ IndexableObject])
   case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
   case class IndexableObject(name: Name, values: IndexableValues, typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
 
   type IndexableValues = Seq[IndexableValue]
   case class IndexableValue(id: String, value: ElementOrAttribute)
+
+  @JsonSerialize(using=classOf[LocalIndexableRootObjectJsonSerializer]) case class LocalIndexableRootObject(path: Path)
 }
