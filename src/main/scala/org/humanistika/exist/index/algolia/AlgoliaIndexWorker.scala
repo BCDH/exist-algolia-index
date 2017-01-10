@@ -1,6 +1,5 @@
 package org.humanistika.exist.index.algolia
 
-import java.util
 import javax.xml.bind.JAXBContext
 
 import org.exist.collections.Collection
@@ -14,9 +13,9 @@ import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
 import akka.actor.{ActorPath, ActorSystem}
-import com.algolia.search.objects.Query
 import org.apache.logging.log4j.{LogManager, Logger}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.RemoveForCollection
 
 import scala.collection.JavaConverters._
 
@@ -27,8 +26,6 @@ object AlgoliaIndexWorker {
   private val COLLECTION_CONFIG_NS = "http://exist-db.org/collection-config/1.0"
 
   case class Context(var document: Option[DocumentImpl], var mode: Option[ReindexMode])
-
-  case class RemoveForCollection(indexName: IndexName, collectionPath: String)
 }
 
 
@@ -116,8 +113,6 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
           incrementalIndexingActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
         }
     }
-
-    //TODO(AR) implement - remove all entries for this collection
   }
 
   override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]

@@ -8,7 +8,7 @@ scalaVersion := "2.12.0"
 libraryDependencies ++= {
 
   val scalazV = "7.2.7"
-  val existV = "20161201-SNAPSHOT"
+  val existV = "201701082031-SNAPSHOT"
   val algoliaV = "2.5.0"
   val akkaV = "2.4.14"
   val jacksonV = "2.7.4"

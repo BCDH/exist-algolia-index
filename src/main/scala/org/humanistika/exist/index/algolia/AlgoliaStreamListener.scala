@@ -13,8 +13,9 @@ import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
 import akka.actor.{ActorPath, ActorSystem}
+import org.exist.indexing.StreamListener.ReindexMode
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, StartDocument}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 
 import scala.collection.JavaConverters._
 import scalaz._
@@ -97,7 +98,7 @@ object AlgoliaStreamListener {
       .getOrElse(new NodePath())
   }
 
-  case class UserSpecifiedDocumentId(path: NodePath, value: Option[String])
+  case class UserSpecifiedDocumentPathId(path: NodePath, value: Option[String])
 
   case class PartialRootObject(indexName: IndexName, config: RootObject, indexable: IndexableRootObject) {
     def identityEquals(other: PartialRootObject) : Boolean = {
@@ -139,8 +140,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   private var indexConfigs: Map[IndexName, org.exist_db.collection_config._1.Index] = Map.empty
   private var rootObjectConfigs: Seq[(IndexName, RootObject)] = Seq.empty
 
+  private var replacingDocument: Boolean = false
   private var processing: Map[NodePath, Seq[PartialRootObject]] = Map.empty
-  private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentId] = Map.empty
+  private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentPathId] = Map.empty
 
 
   def configure(config: Algolia) {
@@ -152,14 +154,114 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   override def getWorker: AlgoliaIndexWorker = indexWorker
 
-  override def startIndexDocument(transaction: Txn) {
-    // start indexing any documents for which we have IndexableRootObjects
-    indexConfigs.keys.foreach(indexName => startIndexDocument(indexName, indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
+  override def startReplaceDocument(transaction: Txn) {
+    this.replacingDocument = true
+  }
 
+  override def startIndexDocument(transaction: Txn) {
     // find any User Specified Document IDs that we need to complete
     this.userSpecifiedDocumentIds = indexConfigs
-        .map{ case (indexName, index) => indexName -> Option(index.getDocumentId).map(path => UserSpecifiedDocumentId(nodePath(ns, path), None)) }
-        .collect{ case (indexName, Some(usdid)) => indexName -> usdid }
+      .map{ case (indexName, index) => indexName -> Option(index.getDocumentId).map(path => UserSpecifiedDocumentPathId(nodePath(ns, path), None)) }
+      .collect{ case (indexName, Some(usdid)) => indexName -> usdid }
+
+    getWorker.getMode() match {
+      case ReindexMode.STORE if !replacingDocument =>
+        startIndexDocumentForStore()
+
+      case _ => // do nothing
+    }
+
+    super.startIndexDocument(transaction)
+  }
+
+  override def startElement(transaction: Txn, element: ElementImpl, path: NodePath) {
+    val pathClone = new NodePath(path)
+
+    // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
+    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
+      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(element.left))))
+    }
+
+    getWorker.getMode() match {
+      case ReindexMode.STORE if !replacingDocument =>
+        startElementForStore(transaction, element, pathClone)
+
+      case _ => // do nothing
+    }
+
+    super.startElement(transaction, element, path)
+  }
+
+  override def attribute(transaction: Txn, attrib: AttrImpl, path: NodePath) {
+    val pathClone = new NodePath(path)
+    pathClone.addComponent(attrib.getQName)
+
+    // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
+    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
+      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(attrib.right))))
+    }
+
+    getWorker.getMode() match {
+      case ReindexMode.STORE if !replacingDocument =>
+        // update any PartialRootObjects children which match this element
+        updateProcessingChildren(pathClone, attrib.right)
+
+      case _ => // do nothing
+    }
+
+    super.attribute(transaction, attrib, pathClone)
+  }
+
+  override def endElement(transaction: Txn, element: ElementImpl, path: NodePath) {
+    val pathClone = new NodePath(path)
+
+    getWorker.getMode() match {
+      case ReindexMode.STORE if !replacingDocument =>
+        endElementForStore(transaction, element, pathClone)
+
+      case _ => // do nothing
+    }
+
+    super.endElement(transaction, element, path)
+  }
+
+  override def endIndexDocument(transaction: Txn) {
+    getWorker.getMode() match {
+      case ReindexMode.STORE if !replacingDocument =>
+        endIndexDocumentForStore()
+
+      case ReindexMode.REMOVE_ALL_NODES if(!replacingDocument) =>
+        removeForDocument()
+
+      case _ => // do nothing
+    }
+
+    // finished... so clear the map of things we are processing
+    this.processing = Map.empty
+
+    // clear any User Specified Document IDs
+    this.userSpecifiedDocumentIds = Map.empty
+
+    super.endIndexDocument(transaction)
+  }
+
+  override def endReplaceDocument(transaction: Txn) {
+    this.replacingDocument = false
+  }
+
+
+
+
+  private def removeForDocument() = {
+    val docId = getWorker.getDocument.getDocId
+    for(indexName <- indexConfigs.keys) {
+      incrementalIndexingActor ! RemoveForDocument(indexName, docId, userSpecifiedDocumentIds.get(indexName).flatMap(_.value))
+    }
+  }
+
+  private def startIndexDocumentForStore() {
+    // start indexing any documents for which we have IndexableRootObjects
+    indexConfigs.keys.foreach(indexName => startIndexDocument(indexName, indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
 
     // find any RootObjects that we should start processing
     val documentRootObjects = getRootObjectConfigs(isDocumentRootObject)
@@ -167,14 +269,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     if (documentRootObjects.nonEmpty) {
       // as we are just starting a document,
       // we aren't processing these yet, so let's record them
-      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument.getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, Seq.empty)))
+      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument.getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, None, Seq.empty)))
       this.processing = processing + (DOCUMENT_NODE_PATH -> processingAtPath)
     }
-
-    super.startIndexDocument(transaction)
   }
 
-  override def startElement(transaction: Txn, element: ElementImpl, path: NodePath) {
+  private def startElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
     def getUserProvidedNodeId(rootObjectConfig: RootObject, element: ElementImpl): Option[String] = {
       // get the nodeId attribute value for rootObjectConfig from element
       Option(rootObjectConfig.getNodeId)
@@ -190,18 +290,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
         }
     }
 
-    val pathClone = new NodePath(path)
-
-    // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(element.left))))
-    }
-
     // find any new RootObjects that we should start processing
     val elementRootObjects = getRootObjectConfigs(isElementRootObject(pathClone))
     if (elementRootObjects.nonEmpty) {
       // record the new RootObjects that we are processing
-      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, Some(element.getNodeId.toString), getUserProvidedNodeId(rootObjectConfig._2, element), Seq.empty)))
+      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, Some(element.getNodeId.toString), getUserProvidedNodeId(rootObjectConfig._2, element), Seq.empty)))
       val processingAtPath = processing.get(pathClone) match {
         case Some(existingElementRootObjects) =>
           // we filter out newElementRootObjects that are equivalent to elementRootObjects which we are already processing
@@ -214,68 +307,38 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     // update any PartialRootObjects children which match this element
     updateProcessingChildren(pathClone, element.left)
-
-    super.startElement(transaction, element, path)
   }
 
-  override def attribute(transaction: Txn, attrib: AttrImpl, path: NodePath) {
-    val pathClone = new NodePath(path)
-    pathClone.addComponent(attrib.getQName)
-
-    // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(attrib.right))))
-    }
-
-    // update any PartialRootObjects children which match this element
-    updateProcessingChildren(pathClone, attrib.right)
-
-    super.attribute(transaction, attrib, pathClone)
-  }
-
-  override def endElement(transaction: Txn, element: ElementImpl, path: NodePath) {
-    val pathClone = new NodePath(path)
-
+  private def endElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
     // find any new RootObjects that we should finish processing
     // they must match the nodePath and also have a userSpecifiedDocumentId
     // if configured to do so
     val elementRootObjects = processing.getOrElse(pathClone, Seq.empty)
-          .filterNot(partialRootObject => userSpecifiedDocumentIds.get(partialRootObject.indexName).exists(_.value.isEmpty))
+      .filterNot(partialRootObject => userSpecifiedDocumentIds.get(partialRootObject.indexName).exists(_.value.isEmpty))
     if (elementRootObjects.nonEmpty) {
       // index them
       elementRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, userSpecifiedDocumentIds.get(partialRootObject.indexName).flatMap(_.value), partialRootObject.indexable))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName))))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.filterKeys(_ != pathClone)
     }
-
-    super.endElement(transaction, element, path)
   }
 
-  override def endIndexDocument(transaction: Txn) {
-
+  private def endIndexDocumentForStore() {
     // find any outstanding RootObjects that we should finish processing
     val documentRootObjects = processing.values.flatten
-
     if (documentRootObjects.nonEmpty) {
       // index them
       documentRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, userSpecifiedDocumentIds.get(partialRootObject.indexName).flatMap(_.value), partialRootObject.indexable))
-
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName))))
     }
 
     // finish indexing any documents for which we have IndexableRootObjects
     indexConfigs.keys.foreach(indexName => finishDocumentIndex(indexName, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
-
-    // finished... so clear the map of things we are processing
-    this.processing = Map.empty
-
-    // clear any User Specified Document IDs
-    this.userSpecifiedDocumentIds = Map.empty
-
-    super.endIndexDocument(transaction)
   }
+
+  private def getUserSpecifiedDocumentId(indexName: String) : Option[String] = userSpecifiedDocumentIds.get(indexName).flatMap(_.value)
 
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
@@ -362,35 +425,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   //INDEX IT!
-  private def index(indexName: IndexName, userSpecifiedDocumentId: Option[String], indexableRootObject: IndexableRootObject) {
-    incrementalIndexingActor ! Add(indexName, userSpecifiedDocumentId, indexableRootObject)
-
-
-//    indexWorker.getIndex.getAuthentication match {
-//      case None =>
-//        LOG.error("Cannot add object to Algolia index, no Authentication credentials provided")
-//
-//      case Some(auth) =>
-//        val client = new AsyncHttpAPIClientBuilder(auth.applicationId, auth.adminApiKey)
-//          .build()
-//
-//        val index = indexes.get(indexName) match {
-//          case Some(idx) => idx
-//          case None =>
-//            val idx = client.initIndex(indexName, classOf[IndexableRootObject])
-//            indexes += (indexName -> idx)
-//            idx
-//        }
-//
-//        //TODO(AR) batch up objects
-//        val futIndexedObject = index.addObject(indexableRootObject)
-//
-//        //TODO(AR) make async... .get will Await
-//        val indexedId = futIndexedObject.get().getObjectID
-//        if(LOG.isTraceEnabled()) {
-//          LOG.trace("Indexed: {}", indexedId)
-//        }
-//    }
+  private def index(indexName: IndexName, indexableRootObject: IndexableRootObject) {
+    incrementalIndexingActor ! Add(indexName, indexableRootObject)
   }
 
   private def finishDocumentIndex(indexName: IndexName, userSpecifiedDocumentId: Option[String], collectionId: CollectionId, documentId: DocumentId) {

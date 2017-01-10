@@ -7,14 +7,17 @@ import IncrementalIndexingManagerActor._
 import akka.actor.{Actor, Props}
 import IndexLocalStoreDocumentActor._
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
-import org.humanistika.exist.index.algolia.AlgoliaIndexWorker.RemoveForCollection
 
 object IncrementalIndexingManagerActor {
   val ACTOR_NAME = "IncrementalIndexingManager"
+
+  // various messages
   case class StartDocument(indexName: IndexName, collectionId: CollectionId, documentId: DocumentId)
-  case class Add(indexName: IndexName, userSpecifiedDocumentId: Option[String], indexableRootObject: IndexableRootObject)
+  case class Add(indexName: IndexName, indexableRootObject: IndexableRootObject)
   case class FinishDocument(indexName: IndexName, userSpecifiedDocumentId: Option[String], collectionId: CollectionId, documentId: DocumentId)
   case class IndexChanges(indexName: IndexName, changes: Changes)
+  case class RemoveForDocument(indexName: IndexName, documentId: DocumentId, userSpecifiedDocumentId: Option[String])
+  case class RemoveForCollection(indexName: IndexName, collectionPath: String)
   case object DropIndexes
 }
 
@@ -46,6 +49,10 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
 
 
     /* messages to AlgoliaIndexManagerActor and IndexLocalStoreManagerActor */
+    case removeForDocument : RemoveForDocument =>
+      algoliaIndexManagerActor ! removeForDocument
+      indexLocalStoreManagerActor ! removeForDocument
+
     case removeForCollection : RemoveForCollection =>
       algoliaIndexManagerActor ! removeForCollection
       indexLocalStoreManagerActor ! removeForCollection

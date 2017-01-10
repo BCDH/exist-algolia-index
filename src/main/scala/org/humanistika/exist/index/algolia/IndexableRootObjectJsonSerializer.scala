@@ -16,6 +16,7 @@ import Scalaz._
 object IndexableRootObjectJsonSerializer {
   val OBJECT_ID_FIELD_NAME = "objectID"
   val COLLECTION_PATH_FIELD_NAME = "collection"
+  val DOCUMENT_ID_FIELD_NAME = "documentID"
 }
 
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
@@ -26,6 +27,12 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
     gen.writeStringField(OBJECT_ID_FIELD_NAME, objectId)
 
     gen.writeStringField(COLLECTION_PATH_FIELD_NAME, value.collectionPath)
+    value.userSpecifiedDocumentId match {
+      case Some(usd) =>
+        gen.writeStringField(DOCUMENT_ID_FIELD_NAME, usd)
+      case None =>
+        gen.writeNumberField(DOCUMENT_ID_FIELD_NAME, value.documentId)
+    }
 
 //    gen.writeNumberField("collId", value.collectionId)
 //    gen.writeNumberField("docId", value.documentId)

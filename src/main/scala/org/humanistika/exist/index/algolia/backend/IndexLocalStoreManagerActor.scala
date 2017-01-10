@@ -2,7 +2,6 @@ package org.humanistika.exist.index.algolia.backend
 
 import java.io.StringWriter
 import java.nio.file.{Files, Path}
-import java.util.Optional
 import java.util.stream.Collectors
 
 import akka.actor.{Actor, ActorRef, Props}
@@ -15,7 +14,6 @@ import org.humanistika.exist.index.algolia._
 import IndexLocalStoreDocumentActor._
 import IncrementalIndexingManagerActor._
 import org.exist.util.FileUtils
-import org.humanistika.exist.index.algolia.AlgoliaIndexWorker.RemoveForCollection
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.COLLECTION_PATH_FIELD_NAME
 import resource._
 
@@ -27,6 +25,20 @@ object IndexLocalStoreManagerActor {
   val ACTOR_NAME = "IndexLocalStoreManager"
 }
 
+/**
+  * Writes copies of the JSON objects that are going to be sent to Algolia
+  * to the filesystem in the following folder hierarchy
+  *
+  *   - algolia-index
+  *     |
+  *     | - indexes
+  *         |
+  *         | - my-index
+  *             |
+  *             | - document-id
+  *                 |
+  *                 | - timestamp
+  */
 class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
   private val indexesDir = dataDir.resolve("algolia-index").resolve("indexes")
   private var perIndexLocalStoreActors: Map[IndexName, ActorRef] = Map.empty
@@ -43,7 +55,7 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! startDocument
 
-    case add @ Add(indexName, _, _) =>
+    case add @ Add(indexName, _) =>
       val indexActor = perIndexLocalStoreActors(indexName)
       indexActor ! add
 
@@ -53,6 +65,10 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
 
     case indexChanges : IndexChanges =>
       context.parent ! indexChanges
+
+    case removeForDocument @ RemoveForDocument(indexName, _, _) =>
+      val indexActor = getOrCreatePerIndexActor(indexName)
+      indexActor ! removeForDocument
 
     case removeForCollection @ RemoveForCollection(indexName, _) =>
       val indexActor = getOrCreatePerIndexActor(indexName)
@@ -93,10 +109,10 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       this.processing = processing + (documentId -> timestamp)
       getOrCreatePerDocumentActor(documentId)
 
-    case Add(_, userSpecifiedDocumentId, iro @ IndexableRootObject(_, _, documentId, _, _, _)) =>
+    case Add(_, iro @ IndexableRootObject(_, _, documentId, _, _, _, _)) =>
       val perDocumentActor = getOrCreatePerDocumentActor(documentId)
       val timestamp = processing(documentId)
-      perDocumentActor ! Write(timestamp, userSpecifiedDocumentId, iro)
+      perDocumentActor ! Write(timestamp, iro)
 
     case FinishDocument(_, userSpecifiedDocumentId, _, documentId) =>
       val perDocumentActor = perDocumentActors(documentId)
@@ -108,11 +124,22 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       val perDocumentActor = perDocumentActors(documentId)
       this.processing = processing - documentId
       context.stop(perDocumentActor)
-      perDocumentActors = perDocumentActors - documentId
+      this.perDocumentActors = perDocumentActors - documentId
 
       // tell the IndexLocalStoreManagerActor that there are changes to index
       context.parent ! IndexChanges(indexName, changes)
     //TODO(AR) when to delete previous timestamp (after upload into Algolia)
+
+    case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
+      val perDocumentActor = getOrCreatePerDocumentActor(documentId)
+      val maybeTimestamp = processing.get(documentId)
+      perDocumentActor ! RemoveDocument(documentId, userSpecifiedDocumentId, maybeTimestamp)  // perDocumentActor will stop itself!
+
+    case RemovedDocument(documentId) =>
+      val perDocumentActor = perDocumentActors(documentId)
+      this.processing = processing - documentId
+      context.stop(perDocumentActor)
+      this.perDocumentActors = perDocumentActors - documentId  //perDocumentActor is no longer required
 
     case RemoveForCollection(_, collectionPath) =>
       import context.dispatcher
@@ -158,10 +185,10 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
           // not all perDocumentActors were gracefully stopped
           this.perDocumentActors = Map.empty
           val failedDocumentIds = stoppedPerDocumentActors.filterNot(_._2).map(_._1)
-          throw new IllegalStateException(s"Could not stop document actors for ${failedDocumentIds}")
+          throw new IllegalStateException(s"Could not stop document actors for ${failedDocumentIds}") //TODO(AR) better error messages
 
         case Failure(t) =>
-          throw t
+          throw t //TODO(AR) better error messages
       }
   }
 
@@ -175,7 +202,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
   }
 
   /**
-    * Gets the paths of all serialized IndeableRootObjects which are in the
+    * Gets the paths of all serialized IndexableRootObjects which are in the
     * collection or (sub-collection of) the collectionPath
     */
   private def rootObjectsByCollectionTree(timestampDir: Path, collectionPath: CollectionPath): Seq[Path] = {
@@ -211,10 +238,12 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
 
 object IndexLocalStoreDocumentActor {
   val mapper = new ObjectMapper
-  case class Write(timestamp: Timestamp, userSpecifiedDocumentId: Option[String], indexableRootObject: IndexableRootObject)
+  case class Write(timestamp: Timestamp, indexableRootObject: IndexableRootObject)
   case class FindChanges(timestamp: Timestamp, userSpecifiedDocumentId: Option[String], documentId: DocumentId)
   type objectID = String
   case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], deletions: Seq[objectID])
+  case class RemoveDocument(documentId: DocumentId, userSpecifiedDocumnentId: Option[String], maybeTimestamp: Option[Timestamp])
+  case class RemovedDocument(documentId: DocumentId)
 
   /**
     * Finds the latest timestamp dir inside the given dir
@@ -245,9 +274,9 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   private val ripeMd160 = new RipeMD160
 
   override def receive: Receive = {
-    case Write(timestamp, userSpecifiedDocumentId, indexableRootObject) =>
-      val usableDocId = usableDocumentId(userSpecifiedDocumentId, indexableRootObject.documentId)
-      val dir = getDir(usableDocId, timestamp)
+    case Write(timestamp, indexableRootObject) =>
+      val usableDocId = usableDocumentId(indexableRootObject.userSpecifiedDocumentId, indexableRootObject.documentId)
+      val dir = getTimestampDir(usableDocId, timestamp)
       if (!Files.exists(dir)) {
         Files.createDirectories(dir)
       }
@@ -265,7 +294,7 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
 
     case FindChanges(timestamp, userSpecifiedDocumentId, documentId) =>
       val usableDocId = usableDocumentId(userSpecifiedDocumentId, documentId)
-      val dir = getDir(usableDocId, timestamp)
+      val dir = getTimestampDir(usableDocId, timestamp)
       val prevDir = findPreviousDir(dir)
 
       prevDir match {
@@ -285,6 +314,25 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
             case Failure(t) => throw t  //TODO(AR) do some better error handling
           }
       }
+
+    case RemoveDocument(documentId, userSpecifiedDocumentId, maybeTimestamp) =>
+      val usableDocId = usableDocumentId(userSpecifiedDocumentId, documentId)
+      val maybeDocTimestampDir = maybeTimestamp.map(getTimestampDir(usableDocId, _)).orElse(getLatestTimestampDir(getDocDir(usableDocId), None))
+
+      maybeDocTimestampDir match {
+        case Some(docTimestampDir) =>
+          // we now have the latest timestamp dir for the documentId
+          if(FileUtils.deleteQuietly(docTimestampDir)) {
+            context.parent ! RemovedDocument(documentId)
+          } else {
+            throw new IllegalStateException(s"Unable to remove for document id: $usableDocId at timestamp: $maybeTimestamp, path: $docTimestampDir")
+          }
+
+        case None =>
+          throw new IllegalStateException(s"Unable to find doc timestamp dir to remove for document id: $usableDocId at timestamp: $maybeTimestamp")
+      }
+
+
   }
 
   private def findPreviousDir(timestampDir: Path): Option[Path] = {
@@ -293,7 +341,9 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     getLatestTimestampDir(docDir, Some(timestamp))
   }
 
-  private def getDir(usableDocumentId: String, timestamp: Long) = indexDir.resolve(usableDocumentId).resolve(timestamp.toString)
+  private def getDocDir(usableDocumentId: String) = indexDir.resolve(usableDocumentId)
+
+  private def getTimestampDir(usableDocumentId: String, timestamp: Long) = getDocDir(usableDocumentId).resolve(timestamp.toString)
 
   private def usableDocumentId(userSpecifiedDocumentId: Option[String], documentId: Int): String = userSpecifiedDocumentId.getOrElse(documentId.toString)
 
@@ -318,10 +368,4 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   //  }
 }
 
-/***
--- algolia-index
-  - indexes
-    - my-index
-      - document-id
-        - timestamp
-  ***/
+

@@ -4,14 +4,14 @@ import akka.actor.{Actor, ActorRef, Props}
 import com.algolia.search.{APIClient, ApacheAPIClientBuilder, Index}
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 import org.humanistika.exist.index.algolia.{IndexName, IndexableRootObject}
-import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.COLLECTION_PATH_FIELD_NAME
+import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import AlgoliaIndexActor._
-import IncrementalIndexingManagerActor.{DropIndexes, IndexChanges}
+import IncrementalIndexingManagerActor.{DropIndexes, IndexChanges, RemoveForCollection, RemoveForDocument}
 import com.algolia.search.inputs.batch.{BatchAddObjectOperation, BatchDeleteObjectOperation}
 import com.algolia.search.objects.{IndexSettings, Query}
-import org.humanistika.exist.index.algolia.AlgoliaIndexWorker.RemoveForCollection
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.Changes
 
+import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 
 object AlgoliaIndexManagerActor {
@@ -29,6 +29,10 @@ class AlgoliaIndexManagerActor extends Actor {
     case IndexChanges(indexName, changes) =>
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! changes
+
+    case rfd @ RemoveForDocument(indexName, _, _) =>
+      val indexActor = getOrCreatePerIndexActor(indexName)
+      indexActor ! rfd
 
     case rfc @ RemoveForCollection(indexName, _) =>
       val indexActor = getOrCreatePerIndexActor(indexName)
@@ -52,10 +56,35 @@ class AlgoliaIndexManagerActor extends Actor {
 
       val indexSettings = Option(index.getSettings).getOrElse(new IndexSettings)
       val searchableAttributes = Option(indexSettings.getSearchableAttributes).map(_.asScala.toSeq).getOrElse(Seq.empty)
-      val newSearchableAttributes = searchableAttributes.find(_.equals(COLLECTION_PATH_FIELD_NAME)).map(_ => searchableAttributes).getOrElse(searchableAttributes :+ COLLECTION_PATH_FIELD_NAME)
+      val newSearchableAttributes = addSearchableAttributes(searchableAttributes,
+        COLLECTION_PATH_FIELD_NAME,
+        DOCUMENT_ID_FIELD_NAME)
       index.setSettings(indexSettings.setSearchableAttributes(newSearchableAttributes.asJava))
 
       index
+    }
+
+    @tailrec
+    def addSearchableAttributes(searchableAttributes: Seq[String], searchableAttribute: String*): Seq[String] = {
+      searchableAttribute.headOption match {
+        case None =>
+          searchableAttributes
+
+        case Some(sa) =>
+          val newSearchableAttributes = addSearchableAttribute(searchableAttributes, sa)
+          if(searchableAttribute.size > 1) {
+            addSearchableAttributes(newSearchableAttributes, searchableAttribute.tail:_*)
+          } else {
+            newSearchableAttributes
+          }
+
+      }
+    }
+
+    def addSearchableAttribute(searchableAttributes: Seq[String], searchableAttribute: String): Seq[String] = {
+      searchableAttributes
+        .find(_.equals(searchableAttribute))
+        .map(_ => searchableAttributes).getOrElse(searchableAttributes :+ searchableAttribute)
     }
 
     val perIndexActor = context.actorOf(Props(classOf[AlgoliaIndexActor], indexName, initIndex()), indexName)
@@ -77,6 +106,12 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
     case Changes(_, additions, removals) =>
       val batchOperations = additions.map(new BatchAddObjectOperation(_)) ++ removals.map(new BatchDeleteObjectOperation(_))
       algoliaIndex.batch(batchOperations.asJava).waitForCompletion()
+
+    case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
+      val query = new Query()
+      query.setRestrictSearchableAttributes(DOCUMENT_ID_FIELD_NAME)
+      query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
+      algoliaIndex.deleteByQuery(query)
 
     case RemoveForCollection(_, collectionPath) =>
       val query = new Query()
