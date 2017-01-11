@@ -2,13 +2,16 @@ package org.humanistika.exist.index.algolia.backend
 
 import akka.actor.{Actor, ActorRef, Props}
 import com.algolia.search.{APIClient, ApacheAPIClientBuilder, Index}
+import org.humanistika.exist.index.algolia.readObjectId
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
-import org.humanistika.exist.index.algolia.{IndexName, IndexableRootObject}
+import org.humanistika.exist.index.algolia.{IndexName, IndexableRootObject, LocalIndexableRootObject}
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import AlgoliaIndexActor._
 import IncrementalIndexingManagerActor.{DropIndexes, IndexChanges, RemoveForCollection, RemoveForDocument}
-import com.algolia.search.inputs.batch.{BatchAddObjectOperation, BatchDeleteObjectOperation}
+import com.algolia.search.inputs.batch.{BatchAddObjectOperation, BatchDeleteObjectOperation, BatchUpdateObjectOperation}
 import com.algolia.search.objects.{IndexSettings, Query}
+import com.fasterxml.jackson.databind.ObjectMapper
+import grizzled.slf4j.Logger
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.Changes
 
 import scala.annotation.tailrec
@@ -98,30 +101,62 @@ class AlgoliaIndexManagerActor extends Actor {
 object AlgoliaIndexActor {
   case object DropIndex
   case class DroppedIndex(indexName: IndexName)
+  private lazy val mapper = new ObjectMapper
 }
 
 class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootObject]) extends Actor {
+  private val logger = Logger(classOf[AlgoliaIndexActor])
+
   override def receive: Receive = {
 
-    case Changes(_, additions, removals) =>
-      val batchOperations = additions.map(new BatchAddObjectOperation(_)) ++ removals.map(new BatchDeleteObjectOperation(_))
+    case changes @ Changes(_, additions, updates, removals) =>
+      if(logger.isTraceEnabled) {
+        logChanges(changes)
+      }
+      val batchOperations =
+        additions.map(new BatchAddObjectOperation[LocalIndexableRootObject](_)) ++
+          updates.map(new BatchUpdateObjectOperation[LocalIndexableRootObject](_)) ++
+          removals.map(new BatchDeleteObjectOperation(_))
       algoliaIndex.batch(batchOperations.asJava).waitForCompletion()
 
     case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Removing document (id=$documentId, userSpecificDocId=$userSpecifiedDocumentId) from index: $indexName")
+      }
       val query = new Query()
       query.setRestrictSearchableAttributes(DOCUMENT_ID_FIELD_NAME)
       query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
       algoliaIndex.deleteByQuery(query)
 
     case RemoveForCollection(_, collectionPath) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Removing documents for Collection (path=$collectionPath) from index: $indexName")
+      }
       val query = new Query()
       query.setRestrictSearchableAttributes(COLLECTION_PATH_FIELD_NAME)
       query.setQuery(collectionPath)
       algoliaIndex.deleteByQuery(query)
 
     case DropIndex =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Removing index: $indexName")
+      }
       algoliaIndex.delete().waitForCompletion()
       sender ! DroppedIndex(indexName)
       context.stop(self)
+  }
+
+  private def logChanges(changes: Changes) {
+    for(addition <- changes.additions) {
+      logger.trace(s"Adding object(id=${readObjectId(addition.path, mapper)} path=${addition.path}) to index: $indexName")
+    }
+
+    for(update <- changes.updates) {
+      logger.trace(s"Updating object(id=${readObjectId(update.path, mapper)} path=${update.path}) to index: $indexName")
+    }
+
+    for(removal <- changes.deletions) {
+      logger.trace(s"Removing object(id=${removal}) from index: $indexName")
+    }
   }
 }

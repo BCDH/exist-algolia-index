@@ -165,7 +165,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
       .collect{ case (indexName, Some(usdid)) => indexName -> usdid }
 
     getWorker.getMode() match {
-      case ReindexMode.STORE if !replacingDocument =>
+      case ReindexMode.STORE =>
         startIndexDocumentForStore()
 
       case _ => // do nothing
@@ -183,7 +183,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     }
 
     getWorker.getMode() match {
-      case ReindexMode.STORE if !replacingDocument =>
+      case ReindexMode.STORE =>
         startElementForStore(transaction, element, pathClone)
 
       case _ => // do nothing
@@ -202,7 +202,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     }
 
     getWorker.getMode() match {
-      case ReindexMode.STORE if !replacingDocument =>
+      case ReindexMode.STORE =>
         // update any PartialRootObjects children which match this element
         updateProcessingChildren(pathClone, attrib.right)
 
@@ -216,7 +216,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     val pathClone = new NodePath(path)
 
     getWorker.getMode() match {
-      case ReindexMode.STORE if !replacingDocument =>
+      case ReindexMode.STORE =>
         endElementForStore(transaction, element, pathClone)
 
       case _ => // do nothing
@@ -227,7 +227,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   override def endIndexDocument(transaction: Txn) {
     getWorker.getMode() match {
-      case ReindexMode.STORE if !replacingDocument =>
+      case ReindexMode.STORE =>
         endIndexDocumentForStore()
 
       case ReindexMode.REMOVE_ALL_NODES if(!replacingDocument) =>

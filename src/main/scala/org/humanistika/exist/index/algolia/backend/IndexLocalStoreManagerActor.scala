@@ -14,12 +14,15 @@ import org.humanistika.exist.index.algolia._
 import IndexLocalStoreDocumentActor._
 import IncrementalIndexingManagerActor._
 import org.exist.util.FileUtils
-import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.COLLECTION_PATH_FIELD_NAME
+import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, OBJECT_ID_FIELD_NAME}
 import resource._
 
 import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
+import scalaz._
+import Scalaz._
+import fs2.{Task, io}
 
 object IndexLocalStoreManagerActor {
   val ACTOR_NAME = "IndexLocalStoreManager"
@@ -119,7 +122,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       val timestamp = processing(documentId)
       perDocumentActor ! FindChanges(timestamp, userSpecifiedDocumentId, documentId)
 
-    case changes @ Changes(documentId, _, _) =>
+    case changes @ Changes(documentId, _, _, _) =>
       // cleanup per document actor (no longer required)
       val perDocumentActor = perDocumentActors(documentId)
       this.processing = processing - documentId
@@ -240,8 +243,7 @@ object IndexLocalStoreDocumentActor {
   val mapper = new ObjectMapper
   case class Write(timestamp: Timestamp, indexableRootObject: IndexableRootObject)
   case class FindChanges(timestamp: Timestamp, userSpecifiedDocumentId: Option[String], documentId: DocumentId)
-  type objectID = String
-  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], deletions: Seq[objectID])
+  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], updates: Seq[LocalIndexableRootObject], deletions: Seq[objectID])
   case class RemoveDocument(documentId: DocumentId, userSpecifiedDocumnentId: Option[String], maybeTimestamp: Option[Timestamp])
   case class RemovedDocument(documentId: DocumentId)
 
@@ -299,19 +301,23 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
 
       prevDir match {
         case Some(prev) =>
-          //TODO(AR) need to find additions and deletions and send them back to the sender
-          throw new UnsupportedOperationException("TODO(AR) need to implement this")
+          // compares the previous version with this version and sends the changes
+          diff(prev, dir) match {
+            case \/-((additions, updates, deletions)) =>
+              sender ! Changes(documentId, additions, updates, deletions)
+
+            case -\/(ts) =>
+              throw ts.head  //TODO(AR) do some better error handling
+          }
 
         case None =>
-          managed(Files.list(dir)).map{ stream =>
-            stream
-              .filter(Files.isRegularFile(_))
-              .collect(Collectors.toList()).asScala
-          }.tried match {
-            case Success(uploadable) =>
-              sender ! Changes(documentId, uploadable.map(LocalIndexableRootObject(_)), Seq.empty)
+          // no previous version, so everything is an addition
+          listFiles(dir) match {
+            case \/-(uploadable) =>
+              sender ! Changes(documentId, uploadable.map(LocalIndexableRootObject(_)), Seq.empty, Seq.empty)
 
-            case Failure(t) => throw t  //TODO(AR) do some better error handling
+            case -\/(ts) =>
+              throw ts.head  //TODO(AR) do some better error handling
           }
       }
 
@@ -333,6 +339,74 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       }
 
 
+  }
+
+
+  type Addition = LocalIndexableRootObject
+  type Update = LocalIndexableRootObject
+  type Removal = objectID
+
+  /**
+   * The diff is calculated as follows:
+   *
+   * 1) If a file exists in prev but not current, then it is a removal
+   *
+   * 2) If a file exists in prev and current, but the checksums vary then current replaces prev
+   *
+   * 4) if a file exists in current but not prev, then it is an addition
+   */
+  private def diff(prev: Path, current: Path) : Seq[Throwable] \/ (Seq[Addition], Seq[Update], Seq[Removal]) = {
+
+    def removalsOrUpdates() : Seq[Throwable] \/ Seq[Removal \/ Update] = listFiles(prev).map(_.map(removalOrUpdate).flatten)
+
+    def removalOrUpdate(prevFile: Path): Option[Removal \/ Update] = {
+      val currentFile = current.resolve(prevFile.getFileName)
+      if(Files.exists(currentFile)) {
+        val prevChecksum = checksum(prevFile)
+        val currentChecksum = checksum(currentFile)
+        if(prevChecksum != currentChecksum) {
+          // update
+          Some(LocalIndexableRootObject(currentFile).right)
+        } else {
+          // no change
+          None
+        }
+      } else {
+        // removal
+        val prevObjectId = readObjectId(prevFile, mapper)
+        prevObjectId.map(_.left)
+      }
+    }
+
+    def additions(): Seq[Throwable] \/ Seq[Addition] = {
+      listFiles(current)
+        .map(_.filter(currentFile => !Files.exists(prev.resolve(currentFile.getFileName))))
+        .map(_.map(LocalIndexableRootObject(_)))
+    }
+
+    def split[L, R](lrs: Seq[L \/ R]) : (Seq[L], Seq[R]) = {
+      lrs.foldLeft((Seq.empty[L], Seq.empty[R])) { (leftsRights, lr) =>
+        val (lefts, rights) = leftsRights
+        lr match {
+          case -\/(l) => (lefts :+ l, rights)
+          case \/-(r) => (lefts, rights :+ r)
+        }
+      }
+    }
+
+    removalsOrUpdates()
+      .flatMap(rou => additions().map { adds =>
+        val (rems, upds) = split(rou)
+        (adds, upds, rems)
+      })
+  }
+
+  private def listFiles(dir: Path) : Seq[Throwable] \/ Seq[Path] = {
+    managed(Files.list(dir)).map{ stream =>
+      stream
+        .filter(Files.isRegularFile(_))
+        .collect(Collectors.toList()).asScala
+    }.either.either.disjunction
   }
 
   private def findPreviousDir(timestampDir: Path): Option[Path] = {
@@ -359,13 +433,17 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     }
   }
 
-  //val checksum = encodeHexString(hash())
-  //
-  //  private def hash(s: String): Array[Byte] = {
-  //    val bs = s.getBytes
-  //    ripeMd160.update(bs, 0, bs.length)
-  //    ripeMd160.digest()
-  //  }
+  private def checksum(file: Path): Throwable \/ Vector[Byte] = {
+    val bufSize = 16384 //16KB
+
+    io.file
+      .readAll[Task](file, bufSize)
+      .through(fs2.hash.md5)
+      .runLog
+      .unsafeAttemptRun()
+      .disjunction
+  }
+
 }
 
 
