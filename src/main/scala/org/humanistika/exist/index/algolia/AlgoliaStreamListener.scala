@@ -84,6 +84,16 @@ object AlgoliaStreamListener {
       result.append(other)
       result
     }
+
+    /**
+      * Creates a new NodePath which is equivalent
+      * to the current path with the last component removed
+      */
+    def dropLastNew() : NodePath = {
+      val result = nodePath.duplicate
+      result.removeLastComponent()
+      result
+    }
   }
 
   val DOCUMENT_NODE_PATH = new NodePath()
@@ -98,7 +108,7 @@ object AlgoliaStreamListener {
       .getOrElse(new NodePath())
   }
 
-  case class UserSpecifiedDocumentPathId(path: NodePath, value: Option[String])
+  case class UserSpecifiedDocumentPathId(path: NodePath, value: Option[UserSpecifiedDocumentId])
 
   case class PartialRootObject(indexName: IndexName, config: RootObject, indexable: IndexableRootObject) {
     def identityEquals(other: PartialRootObject) : Boolean = {
@@ -143,6 +153,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   private var replacingDocument: Boolean = false
   private var processing: Map[NodePath, Seq[PartialRootObject]] = Map.empty
   private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentPathId] = Map.empty
+  private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
 
 
   def configure(config: Algolia) {
@@ -175,7 +186,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   override def startElement(transaction: Txn, element: ElementImpl, path: NodePath) {
-    val pathClone = new NodePath(path)
+    val pathClone = path.duplicate
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
@@ -193,7 +204,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   override def attribute(transaction: Txn, attrib: AttrImpl, path: NodePath) {
-    val pathClone = new NodePath(path)
+    val pathClone = path.duplicate
     pathClone.addComponent(attrib.getQName)
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
@@ -203,8 +214,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
-        // update any PartialRootObjects children which match this element
+        // update any PartialRootObjects children which match this attribute
         updateProcessingChildren(pathClone, attrib.right)
+
+        // update any user defined nodes ids which match this attribute
+        for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(pathClone)) {   //TODO(AR) do we need to compare the index name?
+          this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(getString(attrib.right)))
+        }
 
       case _ => // do nothing
     }
@@ -213,7 +229,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   override def endElement(transaction: Txn, element: ElementImpl, path: NodePath) {
-    val pathClone = new NodePath(path)
+    val pathClone = path.duplicate
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -251,7 +267,6 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
 
 
-
   private def removeForDocument() = {
     val docId = getWorker.getDocument.getDocId
     for(indexName <- indexConfigs.keys) {
@@ -275,26 +290,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   private def startElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
-    def getUserProvidedNodeId(rootObjectConfig: RootObject, element: ElementImpl): Option[String] = {
-      // get the nodeId attribute value for rootObjectConfig from element
-      Option(rootObjectConfig.getNodeId)
-        .flatMap {
-          case attrName if attrName.contains(':') =>
-            val sepIdx = attrName.indexOf(':')
-            val prefix = attrName.substring(0, sepIdx)
-            val localPart = attrName.substring(sepIdx + 1)
-            Option(element.getAttributeNS(ns.get(prefix), localPart))
-
-          case attrName =>
-            Option(element.getAttribute(attrName))
-        }
-    }
-
-    // find any new RootObjects that we should start processing
+    // find any new RootObjects that we should process for this path
     val elementRootObjects = getRootObjectConfigs(isElementRootObject(pathClone))
     if (elementRootObjects.nonEmpty) {
+
       // record the new RootObjects that we are processing
-      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, Some(element.getNodeId.toString), getUserProvidedNodeId(rootObjectConfig._2, element), Seq.empty)))
+      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, Some(element.getNodeId.toString), None, Seq.empty)))
       val processingAtPath = processing.get(pathClone) match {
         case Some(existingElementRootObjects) =>
           // we filter out newElementRootObjects that are equivalent to elementRootObjects which we are already processing
@@ -303,6 +304,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
           newElementRootObjects
       }
       this.processing = processing + (pathClone -> processingAtPath)
+
+      // find any user specified node ids for these root objects that we will later need to complete
+      val newUserSpecifiedNodeIdPaths = elementRootObjects
+        .map(rootObjectConfig => Option((rootObjectConfig._1, nodePath(ns, rootObjectConfig._2.getNodeId()))))
+        .flatten
+        .map{ case (indexName, nodeIdPath) => (indexName, pathClone.appendNew(nodeIdPath))}
+      this.userSpecifiedNodeIds = userSpecifiedNodeIds ++ newUserSpecifiedNodeIdPaths.map(idxPath => (idxPath, None))
     }
 
     // update any PartialRootObjects children which match this element
@@ -318,10 +326,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     if (elementRootObjects.nonEmpty) {
       // index them
       elementRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName))))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeId(partialRootObject.indexName, pathClone))))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.filterKeys(_ != pathClone)
+
+      val indexNames = elementRootObjects.map(partialRootObject => partialRootObject.indexName)
+      this.userSpecifiedNodeIds = this.userSpecifiedNodeIds.filterKeys{ case (indexName, nodePath) => !(indexNames.contains(indexName) && nodePath.dropLastNew() == pathClone) }
     }
   }
 
@@ -336,9 +347,28 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     // finish indexing any documents for which we have IndexableRootObjects
     indexConfigs.keys.foreach(indexName => finishDocumentIndex(indexName, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
+
+    // finished... so clear the map of things we are processing
+    this.processing = Map.empty
+
+    this.userSpecifiedDocumentIds = Map.empty
+    this.userSpecifiedNodeIds = Map.empty
   }
 
-  private def getUserSpecifiedDocumentId(indexName: String) : Option[String] = userSpecifiedDocumentIds.get(indexName).flatMap(_.value)
+  private def getUserSpecifiedDocumentId(indexName: IndexName) : Option[UserSpecifiedDocumentId] = {
+    userSpecifiedDocumentIds
+      .get(indexName)
+      .flatMap(_.value)
+  }
+
+  private def getUserSpecifiedNodeId(indexName: IndexName, rootObjectPath: NodePath) : Option[UserSpecifiedNodeId] = {
+    userSpecifiedNodeIds
+      .keySet
+      .filter{ case (name, path) => name == indexName && path.dropLastNew() == rootObjectPath }
+      .headOption
+      .flatMap(userSpecifiedNodeIds.get(_))
+      .flatten
+  }
 
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
