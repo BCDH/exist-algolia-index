@@ -7,12 +7,12 @@ import org.exist.indexing.AbstractStreamListener
 import org.exist.storage.{DBBroker, NodePath}
 import org.exist.storage.txn.Txn
 import AlgoliaStreamListener._
-import org.apache.logging.log4j.{LogManager, Logger}
 import org.exist.dom.memtree.{DocumentBuilderReceiver, MemTreeBuilder}
 import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
 import akka.actor.{ActorPath, ActorSystem}
+import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
@@ -23,8 +23,6 @@ import Scalaz._
 
 
 object AlgoliaStreamListener {
-
-  private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaStreamListener])
 
   implicit class ElementImplUtils(element: org.exist.dom.persistent.ElementImpl) {
     def toInMemory(broker: DBBroker) : org.exist.dom.memtree.ElementImpl = {
@@ -144,6 +142,8 @@ object AlgoliaStreamListener {
 
 class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, system: ActorSystem) extends AbstractStreamListener {
 
+  private val logger = Logger(classOf[AlgoliaStreamListener])
+
   private val incrementalIndexingActor = system.actorSelection(ActorPath.fromString(s"akka://${AlgoliaIndex.SYSTEM_NAME}/user/${IncrementalIndexingManagerActor.ACTOR_NAME}"))
 
   private val ns: JMap[String, String] = new JHashMap
@@ -190,7 +190,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(element.left))))
+      getString(element.left) match {
+        case \/-(elementText) =>
+          this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(elementText)))
+        case -\/(ts) =>
+          logger.error(s"Unable to serialize element docId=${element.getOwnerDocument.getDocId} nodeId=${element.getNodeId.toString}", ts)
+      }
     }
 
     getWorker.getMode() match {
@@ -209,7 +214,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(getString(attrib.right))))
+      getString(attrib.right) match {
+        case \/-(attribValue) =>
+          this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(attribValue)))
+        case -\/(ts) =>
+          logger.error(s"Unable to serialize attribute docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
+      }
     }
 
     getWorker.getMode() match {
@@ -219,7 +229,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
         // update any user defined nodes ids which match this attribute
         for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(pathClone)) {   //TODO(AR) do we need to compare the index name?
-          this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(getString(attrib.right)))
+          getString(attrib.right) match {
+            case \/-(attribValue) =>
+              this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(attribValue))
+            case -\/(ts) =>
+              logger.error(s"Unable to serialize attribute docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
+          }
         }
 
       case _ => // do nothing
@@ -374,12 +389,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   private def isElementRootObject(path: NodePath)(rootObject: RootObject) = nodePath(ns, rootObject.getPath) == path
 
-  private def getString(node: ElementOrAttributeImpl): String = {
+  private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = {
     node match {
       case -\/(element) =>
         serializeAsText(element)
       case \/-(attribute) =>
-        attribute.getValue
+        attribute.getValue.right
     }
   }
 

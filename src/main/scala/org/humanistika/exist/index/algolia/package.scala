@@ -4,6 +4,7 @@ import java.nio.file.Path
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import grizzled.slf4j.Logger
 import org.exist.dom.persistent.{AttrImpl, ElementImpl}
 import org.exist.storage.NodePath
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.OBJECT_ID_FIELD_NAME
@@ -47,5 +48,14 @@ package object algolia {
     val prevJsonNode = mapper.readTree(file.toFile)
     Option(prevJsonNode.get(OBJECT_ID_FIELD_NAME))
       .flatMap(node => Option(node.asText()))
+  }
+
+  implicit class LoggerUtils(val logger: Logger) {
+    def error(msg: => String, ts: Seq[Throwable]) = {
+      logger.error(msg)
+      for(t <- ts) {
+        logger.error(t.getMessage, t)
+      }
+    }
   }
 }

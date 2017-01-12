@@ -7,8 +7,8 @@ import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import IndexableRootObjectJsonSerializer._
 import org.w3c.dom.Element
-
 import Serializer._
+import grizzled.slf4j.Logger
 
 import scalaz._
 import Scalaz._
@@ -20,7 +20,9 @@ object IndexableRootObjectJsonSerializer {
 }
 
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
-  override def serialize(value: IndexableRootObject, gen: JsonGenerator, serializers: SerializerProvider): Unit = {
+  private val logger = Logger(classOf[IndexableRootObjectJsonSerializer])
+
+  override def serialize(value: IndexableRootObject, gen: JsonGenerator, serializers: SerializerProvider) {
     gen.writeStartObject()
 
     val objectId = value.userSpecifiedNodeId.getOrElse(s"${value.collectionId}/${value.documentId}/${value.nodeId.getOrElse(0)}")
@@ -55,19 +57,38 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
   }
 
   private def serializeAttribute(attr: IndexableAttribute, gen: JsonGenerator, serializers: SerializerProvider) {
-    val values: Seq[String] = attr.values.map( _ match {
+    val values: Seq[Throwable] \/ Seq[String] = attr.values.map( _ match {
       case IndexableValue(id, -\/(element)) =>
         serializeAsText(element)
       case IndexableValue(id, \/-(attribute)) =>
-        attribute.getValue
-    })
+        attribute.getValue.right
+    }).foldLeft((Seq.empty[Throwable], Seq.empty[String])) { case (accum, lr) =>
+      lr match {
+        case \/-(str) if accum._1.isEmpty =>
+          (accum._1, accum._2 :+ str)
+        case \/-(_) if accum._1.nonEmpty =>
+          (accum._1, Seq.empty)
+        case -\/(ts) =>
+          (accum._1 ++ ts, Seq.empty)
+      }
+    } match {
+      case (ts, strs) if ts.isEmpty =>
+        strs.right
+      case (ts, strs) if ts.nonEmpty =>
+        ts.left
+    }
 
-    if(values.size > 1) {
-      gen.writeArrayFieldStart(attr.name)
-      writeValueFields(gen, attr.literalType, values)
-      gen.writeEndArray()
-    } else {
-      writeKeyValueField(gen, attr.literalType)(attr.name, values(0))
+    values match {
+      case \/-(vs) if(vs.size > 1) =>
+        gen.writeArrayFieldStart(attr.name)
+        writeValueFields(gen, attr.literalType, vs)
+        gen.writeEndArray()
+
+      case \/-(vs) =>
+        writeKeyValueField(gen, attr.literalType)(attr.name, vs.head)
+
+      case -\/(ts) =>
+        logger.error("Unable to serialize IndexableAttribute", ts)
     }
   }
 
@@ -115,9 +136,16 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
   private def serializeObject(obj: IndexableObject, gen: JsonGenerator, serializers: SerializerProvider) {
     def serialize(element: Element) = {
       val json = serializeAsJson(element, obj.typeMappings)
-      val jsonBody = jsonObjectAsObjectBody(json)
-      gen.writeRaw(',')
-      gen.writeRaw(jsonBody)
+      val jsonBody = json.map(jsonObjectAsObjectBody(_))
+
+      jsonBody match {
+        case \/-(rawJson) =>
+          gen.writeRaw (',')
+          gen.writeRaw (rawJson)
+
+        case -\/(ts) =>
+          logger.error("Unable to serialize object", ts)
+      }
     }
 
     if(obj.values.size > 1) {
