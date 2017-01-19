@@ -88,7 +88,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
         writeKeyValueField(gen, attr.literalType)(attr.name, vs.head)
 
       case -\/(ts) =>
-        logger.error("Unable to serialize IndexableAttribute", ts)
+        logger.error(s"Unable to serialize IndexableAttribute: ${attr.name}", ts)
     }
   }
 
@@ -144,7 +144,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
           gen.writeRaw (rawJson)
 
         case -\/(ts) =>
-          logger.error("Unable to serialize object", ts)
+          logger.error(s"Unable to serialize IndexableObject: ${obj.name}", ts)
       }
     }
 
