@@ -23,6 +23,7 @@ import scala.util.{Failure, Success, Try}
 import scalaz._
 import Scalaz._
 import fs2.{Task, io}
+import grizzled.slf4j.Logger
 
 object IndexLocalStoreManagerActor {
   val ACTOR_NAME = "IndexLocalStoreManager"
@@ -273,6 +274,7 @@ object IndexLocalStoreDocumentActor {
 }
 
 class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) extends Actor {
+  private lazy val logger = Logger(classOf[IndexLocalStoreDocumentActor])
   private val ripeMd160 = new RipeMD160
 
   override def receive: Receive = {
@@ -303,8 +305,13 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         case Some(prev) =>
           // compares the previous version with this version and sends the changes
           diff(prev, dir) match {
-            case \/-((additions, updates, deletions)) =>
+            case \/-((additions, updates, deletions)) if(additions.nonEmpty || updates.nonEmpty || deletions.nonEmpty) =>
               sender ! Changes(documentId, additions, updates, deletions)
+
+            case \/-((additions, updates, deletions)) if(additions.isEmpty && updates.isEmpty && deletions.isEmpty) =>
+              if(logger.isTraceEnabled) {
+                logger.trace(s"No changes found between: ${prev.toAbsolutePath.toString} and ${dir.toAbsolutePath.toString}")
+              }
 
             case -\/(ts) =>
               throw ts.head  //TODO(AR) do some better error handling
