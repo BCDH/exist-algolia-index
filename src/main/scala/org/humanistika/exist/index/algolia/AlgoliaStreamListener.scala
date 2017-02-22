@@ -327,12 +327,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
         .map{ case (indexName, nodeIdPath) => (indexName, pathClone.appendNew(nodeIdPath))}
       this.userSpecifiedNodeIds = userSpecifiedNodeIds ++ newUserSpecifiedNodeIdPaths.map(idxPath => (idxPath, None))
     }
-
-    // update any PartialRootObjects children which match this element
-    updateProcessingChildren(pathClone, element.left)
   }
 
   private def endElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
+    // update any PartialRootObjects children which match this element
+    updateProcessingChildren(pathClone, element.left)
+
     // find any new RootObjects that we should finish processing
     // they must match the nodePath and also have a userSpecifiedDocumentId
     // if configured to do so
