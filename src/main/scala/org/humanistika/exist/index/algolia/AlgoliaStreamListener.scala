@@ -434,6 +434,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
       updatedExistingChildren ++ nonExistingNewChildren
     }
 
+    def toInMemory(node: ElementOrAttributeImpl): org.exist.dom.memtree.ElementImpl \/ org.exist.dom.memtree.AttrImpl = node.bimap(_.toInMemory(broker), _.toInMemory(broker))
+
     // find any PartialRootObjects which *may* have objects or attributes that match this element or attribute
     val ofInterest = processing
       .filterKeys(path.startsWith(_))
@@ -445,11 +447,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     ) {
       val attributesConfig = partialRootObject.config.getAttribute.asScala
         .filter(attrConf => rootObjectNodePath.appendNew(nodePath(ns, attrConf.getPath)).equals(path))
-      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), node.map(_.toInMemory(broker)))), typeOrDefault(attrConfig.getType)))
+      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), typeOrDefault(attrConfig.getType)))
 
       val objectsConfig = partialRootObject.config.getObject.asScala
         .filter(obj => rootObjectNodePath.appendNew(nodePath(ns, obj.getPath)).equals(path))
-      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), node.map(_.toInMemory(broker)))), getObjectMappings(objectConfig)))
+      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), getObjectMappings(objectConfig)))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
         val newChildren : Seq[IndexableAttribute \/ IndexableObject] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.right) ++ attributes.map(_.left))
