@@ -70,6 +70,36 @@ resolvers +=
   "eXist Maven Repo" at "https://raw.github.com/eXist-db/mvn-repo/master/"
 
 
+// Fancy up the Assembly JAR
+packageOptions in (Compile, packageBin) +=  {
+  import java.text.SimpleDateFormat
+  import java.util.Calendar
+  import java.util.jar.Manifest
+
+  val gitCommit = "git rev-parse HEAD".!!.trim
+  val gitTag = "git name-rev --tags --name-only $(git rev-parse HEAD)".!!.trim
+
+  val additional = Map(
+    "Build-Timestamp" -> new SimpleDateFormat("yyyyMMddHHmmss").format(Calendar.getInstance.getTime),
+    "Built-By" -> sys.props("user.name"),
+    "Build-Tag" -> gitTag,
+    "Source-Repository" -> "scm:git:bcdh/exist-algolia-index.git",
+    "Git-Commit-Abbrev" -> gitCommit.substring(0, 7),
+    "Git-Commit" -> gitCommit,
+    "Build-Jdk" -> sys.props("java.runtime.version"),
+    "Description" -> "An eXist-db Index Plugin for Indexing with Algolia",
+    "Build-Version" -> "N/A",
+    "License" -> "GNU General Public License, version 3"
+  )
+
+  val manifest = new Manifest
+  val attributes = manifest.getMainAttributes
+  for((k, v) <- additional)
+    attributes.putValue(k, v)
+  Package.JarManifest(manifest)
+}
+
+
 // Publish to Maven Central
 
 publishMavenStyle := true
