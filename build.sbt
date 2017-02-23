@@ -5,7 +5,7 @@ organization := "org.humanistika.exist.index.algolia"
 
 version := "1.0"
 
-licenses := Seq(">GNU General Public License, version 3" -> url("http://opensource.org/licenses/gpl-3.0"))
+licenses := Seq("GNU General Public License, version 3" -> url("http://opensource.org/licenses/gpl-3.0"))
 
 homepage := Some(url("https://github.com/bcdh/exist-algolia-index"))
 
