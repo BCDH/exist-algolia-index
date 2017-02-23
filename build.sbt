@@ -126,10 +126,6 @@ publishTo := {
 publishArtifact in Test := false
 
 pomExtra := (
-  <organization>
-    <name>Belgrade Center for Digital Humanities</name>
-    <url>http://www.humanistika.org</url>
-  </organization>
   <developers>
     <developer>
       <id>adamretter</id>
