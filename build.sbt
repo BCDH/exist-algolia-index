@@ -100,9 +100,20 @@ packageOptions in (Compile, packageBin) +=  {
 }
 
 
+// Add assembly to publish step
+artifact in (Compile, assembly) := {
+  val art = (artifact in (Compile, assembly)).value
+  art.copy(`classifier` = Some("assembly"))
+}
+
+addArtifact(artifact in (Compile, assembly), assembly)
+
+
 // Publish to Maven Central
 
 publishMavenStyle := true
+
+credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
 
 publishTo := {
   val nexus = "https://oss.sonatype.org/"
