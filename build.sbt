@@ -1,7 +1,14 @@
 
 name := "exist-algolia-index"
 
+organization := "org.ttasovac.exist.index"
+
 version := "1.0"
+
+licenses := Seq(">GNU General Public License, version 3" -> url("http://opensource.org/licenses/gpl-3.0"))
+
+homepage := Some(url("https://github.com/ttasovac/exist-algolia-index"))
+
 
 scalaVersion := "2.12.0"
 
@@ -61,3 +68,31 @@ resolvers +=
 
 resolvers +=
   "eXist Maven Repo" at "https://raw.github.com/eXist-db/mvn-repo/master/"
+
+
+// Publish to Maven Central
+
+publishMavenStyle := true
+
+publishTo := {
+  val nexus = "https://oss.sonatype.org/"
+  if (isSnapshot.value)
+    Some("snapshots" at nexus + "content/repositories/snapshots")
+  else
+    Some("releases"  at nexus + "service/local/staging/deploy/maven2")
+}
+
+publishArtifact in Test := false
+
+pomExtra := (
+    <scm>
+      <url>git@github.com:ttasovac/exist-algolia-index.git</url>
+      <connection>scm:git:git@github.com:ttasovac/exist-algolia-index.git</connection>
+    </scm>
+    <developers>
+      <developer>
+        <id>adamretter</id>
+        <name>Adam Retter</name>
+        <url>http://www.adamretter.org.uk</url>
+      </developer>
+    </developers>)
