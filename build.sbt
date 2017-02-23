@@ -5,6 +5,14 @@ version := "1.0"
 
 scalaVersion := "2.12.0"
 
+
+import de.heikoseeberger.sbtheader.license.GPLv3
+
+headers := Map(
+  "scala" -> GPLv3("2017", "Toma Tasovac")
+)
+
+
 libraryDependencies ++= {
 
   val scalazV = "7.2.7"
