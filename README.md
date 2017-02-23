@@ -12,12 +12,11 @@ It's probably a good idea to start with a clean database, which means a complete
 
 * The Index plugin requires at least eXist version 3.0.
 
-* The plugin can be built from source code using [SBT](http://www.scala-sbt.org/) or downloaded from Maven Central.
+* The plugin can be [built from source code](#building) using [SBT](http://www.scala-sbt.org/) or downloaded from [Maven Central](https://search.maven.org/#search%7Cga%7C1%7Cg%3A%20org.humanistika.exist.index.algolia).
 
 - Make sure eXist is not running
 
-- Put this jar file into eXist's `lib/user` folder:
-`http://static.adamretter.org.uk/exist-algolia-index-assembly-1.0.jar`
+- Place the jar file named like `exist-algolia-index-assembly-1.0.jar` into eXist's `lib/user`.
 
 - Modify eXist's `conf.xml` file by adding the following line to the `indexer/modules` section:
 
@@ -119,6 +118,19 @@ The log output will then appear in
 - you can't use paths with predicates in index configuration. Support for predicates will be added at a later stage.
 - when you backup eXist, you should now also
 make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that holds the local representation of what is on the remote Algolia Server. Support for adding locally stored Algolia indexes to the backup/restore procedure may be added in the future.
+
+<a name="building">
+## Building from Source
+</a>
+
+```bash
+$ git clone https://github.com/BCDH/exist-algolia-index.git
+$ cd exist-algolia-index
+$ sbt assembly
+```
+
+The assembled binary can then be found is in the folder `target/scala-2.12`.
+
 
 ## Acknowledgements
 
