@@ -1,13 +1,13 @@
 
 name := "exist-algolia-index"
 
-organization := "org.ttasovac.exist.index"
+organization := "org.humanistika.exist.index.algolia"
 
 version := "1.0"
 
 licenses := Seq(">GNU General Public License, version 3" -> url("http://opensource.org/licenses/gpl-3.0"))
 
-homepage := Some(url("https://github.com/ttasovac/exist-algolia-index"))
+homepage := Some(url("https://github.com/bcdh/exist-algolia-index"))
 
 
 scalaVersion := "2.12.0"
@@ -16,7 +16,7 @@ scalaVersion := "2.12.0"
 import de.heikoseeberger.sbtheader.license.GPLv3
 
 headers := Map(
-  "scala" -> GPLv3("2017", "Toma Tasovac")
+  "scala" -> GPLv3("2017", "Belgrade Center for Digital Humanities")
 )
 
 
@@ -24,7 +24,7 @@ libraryDependencies ++= {
 
   val scalazV = "7.2.7"
   val fs2V = "0.9.2"
-  val existV = "201701082031-SNAPSHOT"
+  val existV = "3.0"
   val algoliaV = "2.8.0"
   val akkaV = "2.4.14"
   val jacksonV = "2.7.4"
@@ -85,14 +85,18 @@ publishTo := {
 publishArtifact in Test := false
 
 pomExtra := (
-    <scm>
-      <url>git@github.com:ttasovac/exist-algolia-index.git</url>
-      <connection>scm:git:git@github.com:ttasovac/exist-algolia-index.git</connection>
-    </scm>
-    <developers>
-      <developer>
-        <id>adamretter</id>
-        <name>Adam Retter</name>
-        <url>http://www.adamretter.org.uk</url>
-      </developer>
-    </developers>)
+  <organization>
+    <name>Belgrade Center for Digital Humanities</name>
+    <url>http://www.humanistika.org</url>
+  </organization>
+  <developers>
+    <developer>
+      <id>adamretter</id>
+      <name>Adam Retter</name>
+      <url>http://www.adamretter.org.uk</url>
+    </developer>
+  </developers>
+  <scm>
+    <url>git@github.com:bcdh/exist-algolia-index.git</url>
+    <connection>scm:git:git@github.com:bcdh/exist-algolia-index.git</connection>
+  </scm>)

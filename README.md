@@ -1,5 +1,5 @@
 # еХist Indexer for Algolia
-[![Build Status](https://travis-ci.org/ttasovac/exist-algolia-index.png?branch=master)](https://travis-ci.org/ttasovac/exist-algolia-index) [![Scala 2.12+](https://img.shields.io/badge/scala-2.12+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/ttasovac/exist/index/exist-algolia-index/1.0/exist-algolia-index-1.0-assembly.jar)
+[![Build Status](https://travis-ci.org/bcdh/exist-algolia-index.png?branch=master)](https://travis-ci.org/bcdh/exist-algolia-index) [![Scala 2.12+](https://img.shields.io/badge/scala-2.12+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/humanistika/exist/index/algolia/exist-algolia-index/1.0/exist-algolia-index-1.0-assembly.jar)
 
 
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
@@ -77,7 +77,7 @@ An `attribute` (represents a JSON object attribute, not to be confused with an X
 
 The path for an "attribute" may point to either an XML element or XML attribute node. Paths must be simple, you can use namespace prefixes in the path, but you must also set the namespaceMappings element in the collection.xconf.
 
-The XML Schema file https://github.com/ttasovac/exist-algolia-index/blob/master/src/main/resources/xsd/exist-algolia-index-config.xsd defines and documents the index configuration.
+The XML Schema file https://github.com/bcdh/exist-algolia-index/blob/master/src/main/resources/xsd/exist-algolia-index-config.xsd defines and documents the index configuration.
 
 An `object` represents a JSON object, and this is where things become fun, we basically serialize the XML node pointed to by the "path" attribute on the "object" element to a JSON equivalent. This allows you to create highly complex and structured objects in the Algolia index from your XML.
 
@@ -124,6 +124,6 @@ make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that ho
 
 Hats off to [Adam Retter](https://github.com/adamretter) for sharing his superb programming skills with us in this project.
 
-This tool has been developed in the context of an ongoing BCDH project: Raskovnik - A Serbian Dictionary Platform (together with the Institute of Serbian Language). The project has received funding from the Ministry of culture and Information of the Republic of Serbia.
+This tool has been developed in the context of an ongoing [BCDH](http://www.humanistika.org) project: Raskovnik - A Serbian Dictionary Platform (together with the Institute of Serbian Language). The project has received funding from the Ministry of culture and Information of the Republic of Serbia.
 
  
