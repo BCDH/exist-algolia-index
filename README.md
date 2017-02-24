@@ -31,9 +31,9 @@ It's probably a good idea to start with a clean database, which means a complete
 
 - For the Collection(s) that you want to index with Algolia, you need to add an Algolia index configuration to eXist's `collection.xconf` file. See [instructions](#collectionconf).
 
-- You can then reindex the collection with the data in eXist the way you normally do, and it should be added to Algolia. 
+- You can then reindex the collection with the data in eXist the way you normally do, and it should be added to Algolia.
 
-You can use the Algolia Dashboard to examine the index. Alternatively, you can also set up eXist to to log changes to our Algolia Index. See [instructions](#logging). 
+You can use the Algolia Dashboard to examine the index. Alternatively, you can also set up eXist to to log changes to our Algolia Index. See [instructions](#logging).
 
 <a name="collectionconf">
 ### Configuration
@@ -41,7 +41,7 @@ You can use the Algolia Dashboard to examine the index. Alternatively, you can a
 
 For a single collection in eXist, you can put data into one or more indexes in Algolia, just create an "index" element inside the "algolia" element for each index and give it the name of the Algolia index, if the index doesn't exist in Algolia it will be automatically created for you.
 
-For incremental indexing to work, you need to have two sets of unique ids, one for each document in the collection (documentId) and one for each rootObject (nodeId). 
+For incremental indexing to work, you need to have two sets of unique ids, one for each document in the collection (documentId) and one for each rootObject (nodeId).
 
 ```xml
 <collection xmlns="http://exist-db.org/collection-config/1.0">
@@ -136,6 +136,4 @@ The assembled binary can then be found is in the folder `target/scala-2.12`.
 
 Hats off to [Adam Retter](https://github.com/adamretter) for sharing his superb programming skills with us in this project.
 
-This tool has been developed in the context of an ongoing [BCDH](http://www.humanistika.org) project: Raskovnik - A Serbian Dictionary Platform (together with the Institute of Serbian Language). The project has received funding from the Ministry of culture and Information of the Republic of Serbia.
-
- 
+This tool has been developed in the context of an ongoing [BCDH](http://www.humanistika.org) project: Raskovnik - A Serbian Dictionary Platform (together with the Institute of Serbian Language). The project has received funding from the Ministry of Culture and Information of the Republic of Serbia.
