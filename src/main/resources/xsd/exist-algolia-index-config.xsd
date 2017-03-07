@@ -6,23 +6,21 @@
       <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?)+"/>
     </xs:restriction>
   </xs:simpleType>
-  
+
   <xs:simpleType name="absoluteAttributePathType">
     <xs:restriction base="xs:string">
       <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?)+/@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
     </xs:restriction>
   </xs:simpleType>
-  
+
   <xs:simpleType name="relativeAttributeNameType">
     <xs:restriction base="xs:string">
       <xs:pattern value="@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
     </xs:restriction>
   </xs:simpleType>
-  
+
   <xs:simpleType name="absoluteOrRelativeAttributePathType">
-    <xs:restriction base="xs:string">
-      <xs:pattern value="c:absoluteAttributePath c:relativeAttributeNameType"/>
-    </xs:restriction>
+    <xs:union memberTypes="c:absoluteAttributePathType c:relativeAttributeNameType"/>
   </xs:simpleType>
 
   <xs:simpleType name="absoluteElementPathOrRelativeAttributePathType">
@@ -32,7 +30,7 @@
   <xs:simpleType name="absoluteElementPathOrAbsoluteAttributePathType">
     <xs:union memberTypes="c:absoluteElementPathType c:absoluteAttributePathType"/>
   </xs:simpleType>
-  
+
   <xs:simpleType name="absoluteElementPathOrAbsoluteOrRelativeAttributePathType">
     <xs:union memberTypes="c:absoluteElementPathType c:absoluteOrRelativeAttributePathType"/>
   </xs:simpleType>
@@ -48,7 +46,7 @@
   <xs:attributeGroup name="absoluteElementPathOrRelativeAttributePath">
     <xs:attribute name="path" use="required" type="c:absoluteElementPathOrRelativeAttributePathType"/>
   </xs:attributeGroup>
-  
+
   <xs:attributeGroup name="absoluteElementPathOrAbsoluteOrRelativeAttributePath">
     <xs:attribute name="path" use="required" type="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathType"/>
   </xs:attributeGroup>
