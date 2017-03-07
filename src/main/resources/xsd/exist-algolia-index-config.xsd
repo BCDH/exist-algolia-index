@@ -7,9 +7,21 @@
     </xs:restriction>
   </xs:simpleType>
 
+  <xs:simpleType name="absoluteElementPathWithPredicateType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?(\[@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?\s*(eq|ne|=)\s*'[^']*'\])?)+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <xs:simpleType name="absoluteAttributePathType">
     <xs:restriction base="xs:string">
       <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?)+/@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="absoluteAttributePathWithPredicateType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="/|(//?[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?(\[@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?\s*(eq|ne|=)\s*'[^']*'\])?)+\/@[0-9a-zA-Z]+(:[0-9a-zA-Z]+)?"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -21,6 +33,10 @@
 
   <xs:simpleType name="absoluteOrRelativeAttributePathType">
     <xs:union memberTypes="c:absoluteAttributePathType c:relativeAttributeNameType"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="absoluteOrRelativeAttributePathWithPredicateType">
+    <xs:union memberTypes="c:absoluteAttributePathWithPredicateType c:relativeAttributeNameType"/>
   </xs:simpleType>
 
   <xs:simpleType name="absoluteElementPathOrRelativeAttributePathType">
@@ -35,6 +51,10 @@
     <xs:union memberTypes="c:absoluteElementPathType c:absoluteOrRelativeAttributePathType"/>
   </xs:simpleType>
 
+  <xs:simpleType name="absoluteElementPathOrAbsoluteOrRelativeAttributePathWithPredicateType">
+    <xs:union memberTypes="c:absoluteElementPathWithPredicateType c:absoluteOrRelativeAttributePathWithPredicateType"/>
+  </xs:simpleType>
+
   <xs:attributeGroup name="name">
     <xs:attribute name="name" use="required" type="xs:NCName"/>
   </xs:attributeGroup>
@@ -43,12 +63,20 @@
     <xs:attribute name="path" use="required" type="c:absoluteElementPathType"/>
   </xs:attributeGroup>
 
+  <xs:attributeGroup name="absoluteElementPathWithPredicate">
+    <xs:attribute name="path" use="required" type="c:absoluteElementPathWithPredicateType"/>
+  </xs:attributeGroup>
+
   <xs:attributeGroup name="absoluteElementPathOrRelativeAttributePath">
     <xs:attribute name="path" use="required" type="c:absoluteElementPathOrRelativeAttributePathType"/>
   </xs:attributeGroup>
 
   <xs:attributeGroup name="absoluteElementPathOrAbsoluteOrRelativeAttributePath">
     <xs:attribute name="path" use="required" type="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathType"/>
+  </xs:attributeGroup>
+
+  <xs:attributeGroup name="absoluteElementPathOrAbsoluteOrRelativeAttributePathWithPredicate">
+    <xs:attribute name="path" use="required" type="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathWithPredicateType"/>
   </xs:attributeGroup>
 
   <xs:element name="algolia">
@@ -107,7 +135,7 @@
         <xs:element ref="c:object" minOccurs="0" maxOccurs="unbounded"/>
         <xs:element ref="c:attribute"  minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
-      <xs:attribute name="path" use="optional" default="/" type="c:absoluteElementPathType">
+      <xs:attribute name="path" use="optional" default="/" type="c:absoluteElementPathWithPredicateType">
         <xs:annotation>
           <xs:documentation>The path for the rootObject, defaults to '/' which means one rootObject per document. By setting this to a path within a document, you can create multiple root objects per document.</xs:documentation>
         </xs:annotation>
@@ -129,14 +157,14 @@
         <xs:element ref="c:mapping" minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
       <xs:attributeGroup ref="c:name"/>
-      <xs:attributeGroup ref="c:absoluteElementPath"/>
+      <xs:attributeGroup ref="c:absoluteElementPathWithPredicate"/>
     </xs:complexType>
   </xs:element>
 
   <xs:element name="attribute">
     <xs:complexType>
       <xs:attributeGroup ref="c:name"/>
-      <xs:attributeGroup ref="c:absoluteElementPathOrAbsoluteOrRelativeAttributePath"/>
+      <xs:attributeGroup ref="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathWithPredicate"/>
       <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
     </xs:complexType>
   </xs:element>
