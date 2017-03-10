@@ -3,114 +3,149 @@ package org.humanistika.exist.index.algolia
 import javax.xml.XMLConstants
 import javax.xml.namespace.QName
 
-import org.humanistika.exist.index.algolia.ComponentType.ComponentType
+import org.humanistika.exist.index.algolia.NodePathWithPredicates._
+import org.humanistika.exist.index.algolia.NodePathWithPredicates.ComponentType.ComponentType
 
-import scala.annotation.tailrec
+import scala.util.parsing.combinator._
+import scalaz._
+import Scalaz._
 
-case class TypedQName(name: QName, componentType: ComponentType)
-case class Component(name: TypedQName, predicates: Seq[Predicate])
-case class Predicate(left: TypedQName, comparisonOperator: ComparisonOperator, right: Seq[String])
-
-object ComponentType extends Enumeration {
-  type ComponentType = Value
-  val ATTRIBUTE, ELEMENT, ANY = Value
-}
-
-sealed trait ComparisonOperator {
-  val symbol: String
-}
-object AtomicEqualsComparison extends ComparisonOperator {
-  override val symbol: String = "eq"
-}
-object AtomicNotEqualsComparison extends ComparisonOperator {
-  override val symbol: String = "ne"
-}
-object SequenceEqualsComparison extends ComparisonOperator {
-  override val symbol: String = "="
-}
-
-/**
-  * Created by aretter on 09/03/2017.
-  */
-class NodePathWithPredicates(components: Seq[TypedQName]) {
+class NodePathWithPredicates(components: Seq[Component]) {
   def size = components.size
   def get(idx: Int) = components(idx)
 }
 
 object NodePathWithPredicates {
+  type Prefix = String
+  type NamespaceURI = String
+
   val SKIP = TypedQName(new QName("//"), ComponentType.ANY)
   val WILDCARD = TypedQName(new QName("*"), ComponentType.ANY)
 
-  def apply(namespaces: Map[String, String], path: String): NodePathWithPredicates = {
+  case class Component(name: TypedQName, predicates: Seq[Predicate] = Seq.empty)
+  case class TypedQName(name: QName, componentType: ComponentType)
+  case class Predicate(left: TypedQName, comparisonOperator: ComparisonOperator, right: Seq[String])
 
-    def toTypedQName(name: String): TypedQName = {
-      def splitPrefixLocal(s: String): (Option[String], String) = {
-        val idx = s.indexOf(':')
-        if (idx > -1) {
-          (Some(s.substring(0, idx)), s.substring(idx + 1))
-        } else {
-          (None, s)
-        }
-      }
-
-      def extractPrefix(s: String): Option[String] = {
-        val idx = s.indexOf(':')
-        if (idx > -1) {
-          Some(s.substring(0, idx))
-        } else {
-          None
-        }
-      }
-
-      val (componentName, componentType) = if (name(0) == '@') {
-        (name.substring(1), ComponentType.ATTRIBUTE)
-      } else {
-        (name, ComponentType.ELEMENT)
-      }
-
-      val (prefix, localName) = splitPrefixLocal(componentName)
-      val namespaceUri: String = prefix.flatMap(namespaces.get(_)).getOrElse(XMLConstants.NULL_NS_URI)
-
-      TypedQName(new QName(namespaceUri, localName, prefix.getOrElse(XMLConstants.DEFAULT_NS_PREFIX)), componentType)
-    }
-
-    @tailrec
-    def parse(pos: Int, tokenStart: Int, accum: Seq[TypedQName]): Seq[TypedQName] = {
-      if (pos == path.length) {
-        if (pos - tokenStart != 0) {
-          return toTypedQName(path.substring(tokenStart, pos)) +: accum
-        } else {
-          return accum
-        }
-      }
-
-      path(pos) match {
-        case '*' =>
-          parse(pos + 1, pos + 1, WILDCARD +: accum)
-
-        case '/' =>
-          val next: Option[TypedQName] =
-            if (tokenStart != 0 && pos - tokenStart != 0) {
-              Some(toTypedQName(path.substring(tokenStart, pos)))
-            } else {
-              None
-            }
-
-          val skip: Option[TypedQName] =
-            if (pos + 1 < path.length && path.charAt(pos + 1) == '/') {
-              Some(SKIP)
-            } else {
-              None
-            }
-
-          parse(pos + 1, pos + 1, skip.toSeq ++ next.toSeq ++ accum)
-
-        case _ =>
-          parse(pos + 1, tokenStart, accum)
-      }
-    }
-
-    val components: Seq[TypedQName] = parse(0, 0, Seq.empty).reverse
-    new NodePathWithPredicates(components)
+  object ComponentType extends Enumeration {
+    type ComponentType = Value
+    val ATTRIBUTE, ELEMENT, ANY = Value
   }
+
+  sealed trait ComparisonOperator {
+    val symbol: String
+  }
+  object AtomicEqualsComparison extends ComparisonOperator {
+    override val symbol: String = "eq"
+  }
+  object AtomicNotEqualsComparison extends ComparisonOperator {
+    override val symbol: String = "ne"
+  }
+  object SequenceEqualsComparison extends ComparisonOperator {
+    override val symbol: String = "="
+  }
+
+  @throws[IllegalArgumentException]
+  def apply(namespaces: Map[String, String], path: String): NodePathWithPredicates = {
+    NodePathWithPredicatesParser.parsePath(namespaces, path) match {
+      case \/-(result) =>
+        result
+      case -\/(errorMsg) =>
+        throw new IllegalArgumentException(errorMsg)
+    }
+  }
+}
+
+
+object NodePathWithPredicatesParser extends RegexParsers {
+
+  def parsePath(namespaces: Map[Prefix, NamespaceURI], nodePathString: String): String \/ NodePathWithPredicates = {
+    parseAll(path(namespaces), nodePathString) match {
+      case Success(result, _) =>
+        result.right
+      case NoSuccess(msg, _) =>
+        msg.left
+    }
+  }
+
+  private def path(namespaces: Map[Prefix, NamespaceURI]): Parser[NodePathWithPredicates] = opt(pathComponentSeparator) ~ pathComponent(namespaces) ~ rep(pathComponentSeparator ~ pathComponent(namespaces)) ^^ {
+    case leadingSep ~ firstPathComponent ~ furtherPathComponents =>
+      val components: Seq[Component] = leadingSep.flatten.toSeq ++ (firstPathComponent +: furtherPathComponents.flatMap { case pcs ~ pc => Seq(pcs.toSeq :+ pc)}.flatten)
+      new NodePathWithPredicates(components)
+  }
+
+  private def pathComponentSeparator: Parser[Option[Component]] = descendantOrSelfSeparator | childSeparator
+
+  private def descendantOrSelfSeparator = "//" ^^^ {
+    Some(Component(NodePathWithPredicates.SKIP, Seq.empty))
+  }
+
+  private def childSeparator = "/" ^^^ {
+    None
+  }
+
+  private def pathComponent(namespaces: Map[Prefix, NamespaceURI]): Parser[Component] = wildcardComponent(namespaces) | attributeComponent(namespaces) | elementComponent(namespaces)
+
+  private def wildcardComponent(namespaces: Map[Prefix, NamespaceURI]) = wildcard ~> rep(predicate(namespaces)) ^^ {
+    case predicates =>
+      Component(NodePathWithPredicates.WILDCARD, predicates)
+  }
+
+  private def wildcard = "*"
+
+  private def attributeComponent(namespaces: Map[Prefix, NamespaceURI]) = attributeName(namespaces) ^^ {
+    case attribute =>
+      Component(attribute, Seq.empty)
+  }
+
+  private def attributeName(namespaces: Map[Prefix, NamespaceURI]): Parser[TypedQName] = "@" ~> qname(namespaces) ^^ {
+    case qn =>
+      TypedQName(qn, ComponentType.ATTRIBUTE)
+  }
+
+  private def elementComponent(namespaces: Map[Prefix, NamespaceURI]) = elementName(namespaces) ~ rep(predicate(namespaces)) ^^ {
+    case element ~ predicates =>
+      Component(element, predicates)
+  }
+
+  private def elementName(namespaces: Map[Prefix, NamespaceURI]) = qname(namespaces) ^^ {
+    case qn =>
+      TypedQName(qn, ComponentType.ELEMENT)
+  }
+
+  private def qname(namespaces: Map[Prefix, NamespaceURI]) = opt(qnamePrefix <~ ":") ~ qnameLocalPart ^^ {
+    case Some(prefix) ~ local =>
+      val ns = namespaces.get(prefix).getOrElse(XMLConstants.NULL_NS_URI)
+      new QName(ns, local, prefix)
+    case None ~ local =>
+      new QName(local)
+  }
+
+  private def qnamePrefix = """[a-zA-Z0-9\-]+""".r
+
+  private def qnameLocalPart = """[a-zA-Z0-9\-]+""".r
+
+  private def predicate(namespaces: Map[Prefix, NamespaceURI]): Parser[Predicate] = "[" ~> predicateLeftExpression(namespaces) ~ predicateOperator ~ predicateRightExpression <~ "]" ^^ {
+    case left ~ op ~ right =>
+      Predicate(left, op, Seq(right))
+  }
+
+  private def predicateLeftExpression(namespaces: Map[Prefix, NamespaceURI]) = attributeName(namespaces)
+
+  private def predicateOperator: Parser[ComparisonOperator] = atomicEqualsOperator | atomicNotEqualsOperator | sequenceEqualsOperator
+
+  private def atomicEqualsOperator: Parser[ComparisonOperator] = "eq" ^^^ {
+    AtomicEqualsComparison
+  }
+
+  private def atomicNotEqualsOperator = "ne" ^^^ {
+    AtomicNotEqualsComparison
+  }
+
+  private def sequenceEqualsOperator = "=" ^^^ {
+    SequenceEqualsComparison
+  }
+
+  private def predicateRightExpression = predicateRightLiteral
+
+  private def predicateRightLiteral = "'" ~> """[^'"]*""".r <~ "'"
 }

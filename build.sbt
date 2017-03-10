@@ -30,6 +30,7 @@ libraryDependencies ++= {
   val jacksonV = "2.7.4"
 
   Seq(
+    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.5",
     "org.scala-lang.modules" %% "scala-java8-compat" % "0.8.0",
     "org.scalaz" %% "scalaz-core" % scalazV,
     "com.jsuereth" %% "scala-arm" % "2.0",
