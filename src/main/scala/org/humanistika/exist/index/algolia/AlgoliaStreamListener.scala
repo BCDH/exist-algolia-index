@@ -18,6 +18,7 @@
 package org.humanistika.exist.index.algolia
 
 import java.util.{Properties, HashMap => JHashMap, Map => JMap}
+import javax.xml.XMLConstants
 
 import org.exist.dom.persistent.{AttrImpl, ElementImpl, NodeProxy}
 import org.exist.indexing.AbstractStreamListener
@@ -31,12 +32,14 @@ import Serializer._
 import akka.actor.{ActorPath, ActorSystem}
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
+import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, SequenceEqualsComparison}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 
 import scala.collection.JavaConverters._
 import scalaz._
 import Scalaz._
+import scala.annotation.tailrec
 
 
 object AlgoliaStreamListener {
@@ -323,7 +326,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   private def startElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
     // find any new RootObjects that we should process for this path
-    val elementRootObjects = getRootObjectConfigs(isElementRootObject(pathClone))
+    val elementRootObjects = getRootObjectConfigs(isElementRootObject(element, pathClone))
     if (elementRootObjects.nonEmpty) {
 
       // record the new RootObjects that we are processing
@@ -404,7 +407,85 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
-  private def isElementRootObject(path: NodePath)(rootObject: RootObject) = nodePath(ns, rootObject.getPath) == path
+  private def isElementRootObject(context: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
+    // nodePath(ns, rootObject.getPath) == path
+
+    val rootObjectPath = NodePathWithPredicates(ns.asScala.toMap, rootObject.getPath)
+    if(rootObjectPath.asNodePath == path) {
+      nodePathAndPredicatesMatch(context)(rootObjectPath)
+    } else {
+      false
+    }
+  }
+
+  // returns a rootObject only if the predicates on its nodePath hold
+  private def nodePathAndPredicatesMatch(context: ElementImpl)(rootObjectPath: NodePathWithPredicates): Boolean = {
+    val contextNodes = getAncestors(context)
+
+    // TODO(AR) won't handle //* or /*
+    // if contextNodes is empty then we have matched OK
+    val unmatched = rootObjectPath.foldLeft(contextNodes.toList){ case (cn, component) =>
+        cn match {
+          case Nil =>
+            Nil
+          case contextNode :: tail =>
+            val contextNodeName = contextNode.getQName.toJavaQName
+            if(component.name.name == contextNodeName && predicatesMatch(contextNode)(component.predicates)) {
+              tail
+            } else {
+              contextNode :: tail
+            }
+        }
+    }
+
+    unmatched.isEmpty
+  }
+
+  private def predicatesMatch(context: ElementImpl)(predicates: Seq[NodePathWithPredicates.Predicate]): Boolean = {
+    def predicateMatch(predicate: NodePathWithPredicates.Predicate): Boolean = {
+      val attrName = predicate.left.name
+      val attrValue =
+        if (attrName.getNamespaceURI != XMLConstants.NULL_NS_URI) {
+          context.getAttributeNS(attrName.getNamespaceURI, attrName.getLocalPart)
+        } else {
+          context.getAttribute(attrName.getLocalPart)
+        }
+      val predValue = predicate.right
+
+      predicate.comparisonOperator match {
+        case AtomicEqualsComparison if (predValue.size == 1) =>
+          attrValue == predValue
+
+        case AtomicNotEqualsComparison if (predValue.size == 1) =>
+          attrValue != predValue
+
+        case SequenceEqualsComparison if (!predValue.isEmpty) =>
+          predValue.find(_ != attrValue).isEmpty
+
+        case _ =>
+          false
+      }
+    }
+
+    // find the first predicate that does not match
+    val firstMatchFailure = predicates.find(predicate => !predicateMatch(predicate))
+    firstMatchFailure.isEmpty
+  }
+
+  private def getAncestors(node: ElementImpl) : Seq[ElementImpl] = {
+    def ancestors(n: ElementImpl): Seq[ElementImpl] = {
+      Option(n.getParentNode()) match {
+        case Some(parent) if(parent.isInstanceOf[ElementImpl]) =>
+          val parentElem = parent.asInstanceOf[ElementImpl]
+          parentElem +: ancestors(parentElem)
+        case _ =>
+          Seq.empty
+      }
+    }
+
+    val nodes = node +: ancestors(node)
+    nodes.reverse
+  }
 
   private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = {
     node match {
@@ -463,7 +544,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
       partialRootObject <- partialRootObjects
     ) {
       val attributesConfig = partialRootObject.config.getAttribute.asScala
-        .filter(attrConf => rootObjectNodePath.appendNew(nodePath(ns, attrConf.getPath)).equals(path))
+        .filter(attrConf => rootObjectNodePath.appendNew(nodePath(ns, fixXjcAttrOutput(attrConf.getPath))).equals(path))
       val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), typeOrDefault(attrConfig.getType)))
 
       val objectsConfig = partialRootObject.config.getObject.asScala
@@ -480,7 +561,10 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     }
   }
 
-  private def getObjectMappings(objectConfig: org.exist_db.collection_config._1.Object): Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])] = objectConfig.getMapping.asScala.map(mapping => nodePath(ns, mapping.getPath) -> (typeOrDefault(mapping.getType), Option(mapping.getName))).toMap
+  // see http://stackoverflow.com/questions/42656550/xjc-generating-wrong-liststring-for-xmlattribute
+  private def fixXjcAttrOutput(attrList : java.util.List[String]) = attrList.asScala.head
+
+  private def getObjectMappings(objectConfig: org.exist_db.collection_config._1.Object): Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])] = objectConfig.getMapping.asScala.map(mapping => nodePath(ns, fixXjcAttrOutput(mapping.getPath)) -> (typeOrDefault(mapping.getType), Option(mapping.getName))).toMap
 
   private def getRootObjectConfigs(filter: RootObject => Boolean): Seq[(IndexName, RootObject)] = rootObjectConfigs.filter { case (_, rootObject) => filter(rootObject) }
 

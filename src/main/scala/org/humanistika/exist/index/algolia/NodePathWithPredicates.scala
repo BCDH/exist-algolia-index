@@ -3,16 +3,35 @@ package org.humanistika.exist.index.algolia
 import javax.xml.XMLConstants
 import javax.xml.namespace.QName
 
+import org.exist.storage.NodePath
 import org.humanistika.exist.index.algolia.NodePathWithPredicates._
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.ComponentType.ComponentType
 
 import scala.util.parsing.combinator._
 import scalaz._
 import Scalaz._
+import scala.annotation.tailrec
 
 class NodePathWithPredicates(components: Seq[Component]) {
   def size = components.size
+
   def get(idx: Int) = components(idx)
+
+  def foldLeft[B](z: B)(op: (B, Component) => B): B = components.foldLeft(z)(op)
+
+  def asNodePath: NodePath = {
+    val np = new NodePath
+    for(component <- components) {
+      val qnType = component.name.componentType match {
+        case ComponentType.ATTRIBUTE =>
+          org.exist.storage.ElementValue.ATTRIBUTE
+        case _ =>
+          org.exist.storage.ElementValue.ELEMENT
+      }
+      np.addComponent(new org.exist.dom.QName(component.name.name.getLocalPart, component.name.name.getNamespaceURI, component.name.name.getPrefix, qnType))
+    }
+    np
+  }
 }
 
 object NodePathWithPredicates {
