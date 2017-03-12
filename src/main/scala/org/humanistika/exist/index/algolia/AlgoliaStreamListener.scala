@@ -20,7 +20,7 @@ package org.humanistika.exist.index.algolia
 import java.util.{Properties, HashMap => JHashMap, Map => JMap}
 import javax.xml.XMLConstants
 
-import org.exist.dom.persistent.{AttrImpl, ElementImpl, NodeProxy}
+import org.exist.dom.persistent.{AttrImpl, ElementImpl, NamedNode, NodeProxy}
 import org.exist.indexing.AbstractStreamListener
 import org.exist.storage.{DBBroker, NodePath}
 import org.exist.storage.txn.Txn
@@ -419,18 +419,20 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   // returns a rootObject only if the predicates on its nodePath hold
-  private def nodePathAndPredicatesMatch(context: ElementImpl)(rootObjectPath: NodePathWithPredicates): Boolean = {
+  private def nodePathAndPredicatesMatch(context: NamedNode[_])(npwp: NodePathWithPredicates): Boolean = {
     val contextNodes = getAncestors(context)
 
     // TODO(AR) won't handle //* or /*
     // if contextNodes is empty then we have matched OK
-    val unmatched = rootObjectPath.foldLeft(contextNodes.toList){ case (cn, component) =>
+    val unmatched = npwp.foldLeft(contextNodes.toList){ case (cn, component) =>
         cn match {
           case Nil =>
             Nil
           case contextNode :: tail =>
             val contextNodeName = contextNode.getQName.toJavaQName
-            if(component.name.name == contextNodeName && predicatesMatch(contextNode)(component.predicates)) {
+            if(component.name.name == contextNodeName &&
+                (contextNode.isInstanceOf[AttrImpl]
+                  || (contextNode.isInstanceOf[ElementImpl] && predicatesMatch(contextNode.asInstanceOf[ElementImpl])(component.predicates)))) {
               tail
             } else {
               contextNode :: tail
@@ -472,8 +474,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     firstMatchFailure.isEmpty
   }
 
-  private def getAncestors(node: ElementImpl) : Seq[ElementImpl] = {
-    def ancestors(n: ElementImpl): Seq[ElementImpl] = {
+  private def getAncestors(node: NamedNode[_]) : Seq[NamedNode[_]] = {
+    def ancestors(n: NamedNode[_]): Seq[NamedNode[_]] = {
       Option(n.getParentNode()) match {
         case Some(parent) if(parent.isInstanceOf[ElementImpl]) =>
           val parentElem = parent.asInstanceOf[ElementImpl]
@@ -534,6 +536,17 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
     def toInMemory(node: ElementOrAttributeImpl): org.exist.dom.memtree.ElementImpl \/ org.exist.dom.memtree.AttrImpl = node.bimap(_.toInMemory(broker), _.toInMemory(broker))
 
+    def asNamedNode(node: ElementOrAttributeImpl) : NamedNode[_] = node.fold(_.asInstanceOf[NamedNode[ElementImpl]], _.asInstanceOf[NamedNode[AttrImpl]])
+
+    def asNodePathWithPredicates(rootObjectPath: String, elemOrAttrPath: String) : NodePathWithPredicates = {
+      val sep = if(rootObjectPath.endsWith("/") || elemOrAttrPath.startsWith("/")) {
+        ""
+      } else {
+        "/"
+      }
+      NodePathWithPredicates(ns.asScala.toMap, rootObjectPath + sep + elemOrAttrPath)
+    }
+
     // find any PartialRootObjects which *may* have objects or attributes that match this element or attribute
     val ofInterest = processing
       .filterKeys(path.startsWith(_))
@@ -543,12 +556,15 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
       (rootObjectNodePath, partialRootObjects) <- ofInterest;
       partialRootObject <- partialRootObjects
     ) {
+
+      //TODO(AR) filters for attributesConfig and objectsConfig need to check nodePathsWithPredicates
+
       val attributesConfig = partialRootObject.config.getAttribute.asScala
-        .filter(attrConf => rootObjectNodePath.appendNew(nodePath(ns, fixXjcAttrOutput(attrConf.getPath))).equals(path))
+          .filter(attrConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, fixXjcAttrOutput(attrConf.getPath))))
       val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), typeOrDefault(attrConfig.getType)))
 
       val objectsConfig = partialRootObject.config.getObject.asScala
-        .filter(obj => rootObjectNodePath.appendNew(nodePath(ns, obj.getPath)).equals(path))
+        .filter(objConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, objConf.getPath)))
       val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), getObjectMappings(objectConfig)))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
@@ -562,7 +578,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   }
 
   // see http://stackoverflow.com/questions/42656550/xjc-generating-wrong-liststring-for-xmlattribute
-  private def fixXjcAttrOutput(attrList : java.util.List[String]) = attrList.asScala.head
+  private def fixXjcAttrOutput(attrList : java.util.List[String]) = attrList.asScala.mkString(" ")
 
   private def getObjectMappings(objectConfig: org.exist_db.collection_config._1.Object): Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])] = objectConfig.getMapping.asScala.map(mapping => nodePath(ns, fixXjcAttrOutput(mapping.getPath)) -> (typeOrDefault(mapping.getType), Option(mapping.getName))).toMap
 
