@@ -17,8 +17,10 @@
 
 package org.humanistika.exist.index.algolia
 
+import java.util.{ArrayDeque, Deque}
 import java.util.{Properties, HashMap => JHashMap, Map => JMap}
 import javax.xml.XMLConstants
+import javax.xml.namespace.QName
 
 import org.exist.dom.persistent.{AttrImpl, ElementImpl, NamedNode, NodeProxy}
 import org.exist.indexing.AbstractStreamListener
@@ -175,6 +177,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentPathId] = Map.empty
   private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
 
+  case class NameAndPredicates(name: QName, attributes: Map[QName, String])
+  private val context: Deque[NameAndPredicates] = new ArrayDeque[NameAndPredicates]()
 
   def configure(config: Algolia) {
     this.ns.clear()
@@ -208,6 +212,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   override def startElement(transaction: Txn, element: ElementImpl, path: NodePath) {
     val pathClone = path.duplicate
 
+    // update the current context
+    context.push(NameAndPredicates(element.getQName.toJavaQName, Map.empty))
+
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
       getString(element.left) match {
@@ -231,6 +238,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   override def attribute(transaction: Txn, attrib: AttrImpl, path: NodePath) {
     val pathClone = path.duplicate
     pathClone.addComponent(attrib.getQName)
+
+    // update the current context
+    val elemContext = context.pop
+    val newAttributes = elemContext.attributes + (attrib.getQName.toJavaQName -> attrib.getValue)
+    context.push(elemContext.copy(attributes = newAttributes))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
@@ -273,6 +285,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
       case _ => // do nothing
     }
 
+    // update the current context
+    context.pop()
+
     super.endElement(transaction, element, path)
   }
 
@@ -293,14 +308,14 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     // clear any User Specified Document IDs
     this.userSpecifiedDocumentIds = Map.empty
 
+    this.context.clear()
+
     super.endIndexDocument(transaction)
   }
 
   override def endReplaceDocument(transaction: Txn) {
     this.replacingDocument = false
   }
-
-
 
   private def removeForDocument() = {
     val docId = getWorker.getDocument.getDocId
@@ -407,32 +422,32 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
-  private def isElementRootObject(context: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
+  private def isElementRootObject(currentNode: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
     // nodePath(ns, rootObject.getPath) == path
 
     val rootObjectPath = NodePathWithPredicates(ns.asScala.toMap, rootObject.getPath)
     if(rootObjectPath.asNodePath == path) {
-      nodePathAndPredicatesMatch(context)(rootObjectPath)
+      nodePathAndPredicatesMatch(currentNode)(rootObjectPath)
     } else {
       false
     }
   }
 
   // returns a rootObject only if the predicates on its nodePath hold
-  private def nodePathAndPredicatesMatch(context: NamedNode[_])(npwp: NodePathWithPredicates): Boolean = {
-    val contextNodes = getAncestors(context)
+  private def nodePathAndPredicatesMatch(currentNode: NamedNode[_])(npwp: NodePathWithPredicates): Boolean = {
+    val contextNodes: scala.collection.immutable.List[NameAndPredicates] = context.asScala.toList.reverse
 
     // TODO(AR) won't handle //* or /*
     // if contextNodes is empty then we have matched OK
-    val unmatched = npwp.foldLeft(contextNodes.toList){ case (cn, component) =>
+    val unmatched = npwp.foldLeft(contextNodes){ case (cn, component) =>
         cn match {
           case Nil =>
             Nil
           case contextNode :: tail =>
-            val contextNodeName = contextNode.getQName.toJavaQName
+            val contextNodeName = contextNode.name
             if(component.name.name == contextNodeName &&
-                (contextNode.isInstanceOf[AttrImpl]
-                  || (contextNode.isInstanceOf[ElementImpl] && predicatesMatch(contextNode.asInstanceOf[ElementImpl])(component.predicates)))) {
+                (currentNode.isInstanceOf[AttrImpl]
+                  || (currentNode.isInstanceOf[ElementImpl] && predicatesMatch(contextNode.attributes)(component.predicates)))) {
               tail
             } else {
               contextNode :: tail
@@ -443,28 +458,28 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     unmatched.isEmpty
   }
 
-  private def predicatesMatch(context: ElementImpl)(predicates: Seq[NodePathWithPredicates.Predicate]): Boolean = {
+  private def predicatesMatch(contextAttributes: Map[QName, String])(predicates: Seq[NodePathWithPredicates.Predicate]): Boolean = {
     def predicateMatch(predicate: NodePathWithPredicates.Predicate): Boolean = {
       val attrName = predicate.left.name
-      val attrValue =
-        if (attrName.getNamespaceURI != XMLConstants.NULL_NS_URI) {
-          context.getAttributeNS(attrName.getNamespaceURI, attrName.getLocalPart)
-        } else {
-          context.getAttribute(attrName.getLocalPart)
-        }
       val predValue = predicate.right
 
-      predicate.comparisonOperator match {
-        case AtomicEqualsComparison if (predValue.size == 1) =>
-          attrValue == predValue
+      contextAttributes.get(attrName) match {
+        case Some(attrValue) =>
+          predicate.comparisonOperator match {
+            case AtomicEqualsComparison if (predValue.size == 1) =>
+              attrValue == predValue
 
-        case AtomicNotEqualsComparison if (predValue.size == 1) =>
-          attrValue != predValue
+            case AtomicNotEqualsComparison if (predValue.size == 1) =>
+              attrValue != predValue
 
-        case SequenceEqualsComparison if (!predValue.isEmpty) =>
-          predValue.find(_ != attrValue).isEmpty
+            case SequenceEqualsComparison if (!predValue.isEmpty) =>
+              predValue.find(_ != attrValue).isEmpty
 
-        case _ =>
+            case _ =>
+              false
+          }
+
+        case None =>
           false
       }
     }
@@ -472,21 +487,6 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     // find the first predicate that does not match
     val firstMatchFailure = predicates.find(predicate => !predicateMatch(predicate))
     firstMatchFailure.isEmpty
-  }
-
-  private def getAncestors(node: NamedNode[_]) : Seq[NamedNode[_]] = {
-    def ancestors(n: NamedNode[_]): Seq[NamedNode[_]] = {
-      Option(n.getParentNode()) match {
-        case Some(parent) if(parent.isInstanceOf[ElementImpl]) =>
-          val parentElem = parent.asInstanceOf[ElementImpl]
-          parentElem +: ancestors(parentElem)
-        case _ =>
-          Seq.empty
-      }
-    }
-
-    val nodes = node +: ancestors(node)
-    nodes.reverse
   }
 
   private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = {
