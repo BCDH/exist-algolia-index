@@ -34,7 +34,7 @@ import Serializer._
 import akka.actor.{ActorPath, ActorSystem}
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
-import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, SequenceEqualsComparison}
+import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 
@@ -177,8 +177,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentPathId] = Map.empty
   private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
 
-  case class NameAndPredicates(name: QName, attributes: Map[QName, String])
-  private val context: Deque[NameAndPredicates] = new ArrayDeque[NameAndPredicates]()
+  case class ContextElement(name: QName, attributes: Map[QName, String])
+  private val context: Deque[ContextElement] = new ArrayDeque[ContextElement]()
 
   def configure(config: Algolia) {
     this.ns.clear()
@@ -213,7 +213,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     val pathClone = path.duplicate
 
     // update the current context
-    context.push(NameAndPredicates(element.getQName.toJavaQName, Map.empty))
+    context.push(ContextElement(element.getQName.toJavaQName, Map.empty))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
@@ -240,9 +240,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     pathClone.addComponent(attrib.getQName)
 
     // update the current context
-    val elemContext = context.pop
-    val newAttributes = elemContext.attributes + (attrib.getQName.toJavaQName -> attrib.getValue)
-    context.push(elemContext.copy(attributes = newAttributes))
+    val contextElement = context.pop
+    val newAttributes = contextElement.attributes + (attrib.getQName.toJavaQName -> attrib.getValue)
+    context.push(contextElement.copy(attributes = newAttributes))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
@@ -435,27 +435,46 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
 
   // returns a rootObject only if the predicates on its nodePath hold
   private def nodePathAndPredicatesMatch(currentNode: NamedNode[_])(npwp: NodePathWithPredicates): Boolean = {
-    val contextNodes: scala.collection.immutable.List[NameAndPredicates] = context.asScala.toList.reverse
+    val contextElements: scala.collection.immutable.List[ContextElement] = context.asScala.toList.reverse
 
-    // TODO(AR) won't handle //* or /*
-    // if contextNodes is empty then we have matched OK
-    val unmatched = npwp.foldLeft(contextNodes){ case (cn, component) =>
-        cn match {
+    //is the npwp a path to an attribute?
+    val lastNpwpComponent = npwp.get(npwp.size - 1)
+    val npwpIsAttrPath = lastNpwpComponent.name.componentType == ComponentType.ATTRIBUTE
+
+    /*
+     *  1) if the depths don't match we would do a startsWith(npwp, contextNodes) rather than the correct equals(npwp, contextNodes)
+     *  2) if we have an attribute path we can do a quick early exit check as to whether the attr is in the context
+     *  3) if we have an attribute path and the node is not an attribute we can do a quick early exit
+     */
+    if(npwpIsAttrPath && (
+        npwp.size - 1 > contextElements.length
+        || !context.getFirst.attributes.contains(lastNpwpComponent.name.name)
+        || !currentNode.isInstanceOf[org.w3c.dom.Attr])) {
+      false
+    } else if(!npwpIsAttrPath && npwp.size > contextElements.length) {
+      false
+    } else {
+
+      // TODO(AR) won't handle //* or /*
+      // if contextNodes is empty then we have matched OK
+      val unmatched = npwp.foldLeft(contextElements) { case (ces, component) =>
+        ces match {
           case Nil =>
             Nil
-          case contextNode :: tail =>
-            val contextNodeName = contextNode.name
-            if(component.name.name == contextNodeName &&
-                (currentNode.isInstanceOf[AttrImpl]
-                  || (currentNode.isInstanceOf[ElementImpl] && predicatesMatch(contextNode.attributes)(component.predicates)))) {
+          case contextElement :: tail =>
+            val contextElementName = contextElement.name
+            if (component.name.name == contextElementName &&
+              (currentNode.isInstanceOf[AttrImpl]
+                || (currentNode.isInstanceOf[ElementImpl] && predicatesMatch(contextElement.attributes)(component.predicates)))) {
               tail
             } else {
-              contextNode :: tail
+              contextElement :: tail
             }
         }
-    }
+      }
 
-    unmatched.isEmpty
+      unmatched.isEmpty
+    }
   }
 
   private def predicatesMatch(contextAttributes: Map[QName, String])(predicates: Seq[NodePathWithPredicates.Predicate]): Boolean = {
