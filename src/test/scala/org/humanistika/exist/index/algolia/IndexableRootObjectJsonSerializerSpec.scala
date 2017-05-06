@@ -24,32 +24,34 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
       prefer the user specified node id $e4
 
     The JSON serialized result attributes for DOM Attributes must
-      be constructable $e4
-      be float convertible $e5
-      be int convertible $e6
-      be boolean convertible $e7
-      allow multiple $e8
-      support arrays $e9
+      be constructable $e5
+      be float convertible $e6
+      be int convertible $e7
+      be boolean convertible $e8
+      allow multiple $e9
+      support arrays $e10
 
     The JSON serialized result attributes for DOM Elements must
-      be constructable $e10
-      be float convertible $e11
-      be int convertible $e12
-      be boolean convertible $e13
-      allow multiple $e14
-      serialize all text nodes $e15
-      support arrays $e16
+      be constructable $e11
+      be float convertible $e12
+      be int convertible $e13
+      be boolean convertible $e14
+      allow multiple $e15
+      serialize all text nodes $e16
+      serialize all text nodes and not attributes $e17
+      support arrays $e18
+      support arrays (of text nodes and not attributes) $e19
 
     The JSON serialized result objects for DOM Attributes must
-      be the same as a result attribute $e17
-      support arrays $e18
+      be the same as a result attribute $e20
+      support arrays $e21
 
     The JSON serialized result objects for DOM Elements must
-      be constructable $e19
-      write nested elements $e20
-      write array $e21
-      write nested array $e22
-      support arrays $e23
+      be constructable $e22
+      write nested elements $e23
+      write array $e24
+      write nested array $e25
+      support arrays $e26
 
   """
 
@@ -169,6 +171,13 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   }
 
   def e17 = {
+    val elem1 = elem(dom("""<x y="17">hello <b>world</b></x>"""), "x")
+    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1))), LiteralTypeConfig.String)))
+    val indexableRootObject = IndexableRootObject("/db/a1", 23, 48, None, Some("1"), None, attributes)
+    serializeJson(indexableRootObject) mustEqual """{"objectID":"23/48/1","collection":"/db/a1","documentID":48,"elem1":"hello world"}"""
+  }
+
+  def e18 = {
     val dom1 = dom("""<loc><pos><x>123.4</x><y>-17.45</y></pos><pos><x>456.12</x><y>15.67</y></pos></loc>""")
     val pos = elems(dom1, "pos")
     val elem1_1 = childElem(pos(0), "x")
@@ -183,14 +192,29 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/42/1","collection":"/db/a1","documentID":42,"xx":[123.4,456.12],"yy":[-17.45,15.67]}"""
   }
 
-  def e18 = {
+  def e19 = {
+    val dom1 = dom("""<loc><pos><x a="1">123.4</x><y b="2">-17.45</y></pos><pos><x a="8">456.12</x><y b="9">15.67</y></pos></loc>""")
+    val pos = elems(dom1, "pos")
+    val elem1_1 = childElem(pos(0), "x")
+    val elem1_2 = childElem(pos(1), "x")
+    val elem2_1 = childElem(pos(0), "y")
+    val elem2_2 = childElem(pos(1), "y")
+    val attributes = Seq(
+      -\/(IndexableAttribute("xx", Seq(IndexableValue("1.1", -\/(elem1_1)), IndexableValue("2.1", -\/(elem1_2))), LiteralTypeConfig.Float)),
+      -\/(IndexableAttribute("yy", Seq(IndexableValue("1.2", -\/(elem2_1)), IndexableValue("2.2", -\/(elem2_2))), LiteralTypeConfig.Float))
+    )
+    val indexableRootObject = IndexableRootObject("/db/a1", 7, 42, None, Some("1"), None, attributes)
+    serializeJson(indexableRootObject) mustEqual """{"objectID":"7/42/1","collection":"/db/a1","documentID":42,"xx":[123.4,456.12],"yy":[-17.45,15.67]}"""
+  }
+
+  def e20 = {
     val attr1 = attr(dom("""<w value="hello"/>"""), "value")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", \/-(attr1))), Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 45, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"45/48/1","collection":"/db/a1","documentID":48,"obj1":"hello"}"""
   }
 
-  def e19 = {
+  def e21 = {
     val dom1 = dom("""<x><w value="hello"/><w value="world"/></x>""")
     val xs = elems(dom1, "w")
     val attr1_1 = attr(xs(0), "value")
@@ -203,35 +227,35 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     serializeJson(indexableRootObject) mustEqual """{"objectID":"46/49/1","collection":"/db/a1","documentID":49,"obj1":["hello","world"]}"""
   }
 
-  def e20 = {
+  def e22 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y></w>"""), "w")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 5, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"5/48/1","collection":"/db/a1","documentID":48,"obj1":{"nodeId":"1.1","x":"hello","y":"world"}}"""
   }
 
-  def e21 = {
+  def e23 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><z>world</z><zz>again</zz></y></w>"""), "w")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 2, 49, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"2/49/1","collection":"/db/a1","documentID":49,"obj1":{"nodeId":"1.1","x":"hello","y":{"z":"world","zz":"again"}}}"""
   }
 
-  def e22 = {
+  def e24 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y><y>again</y></w>"""), "w")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 3, 50, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"3/50/1","collection":"/db/a1","documentID":50,"obj1":{"nodeId":"1.1","x":"hello","y":["world","again"]}}"""
   }
 
-  def e23 = {
+  def e25 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><yy>world</yy><yy>again</yy></y></w>"""), "w")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 51, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/51/1","collection":"/db/a1","documentID":51,"obj1":{"nodeId":"1.1","x":"hello","y":{"yy":["world","again"]}}}"""
   }
 
-  def e24 = {
+  def e26 = {
     val dom1 = dom("""<parts><w><x>hello</x><y><yy>world</yy><yy>again</yy></y></w><w><x>goodbye</x><y><yy>until</yy><yy>next time</yy></y></w></parts>""")
     val ww = elems(dom1, "w")
     val objects = Seq(\/-(IndexableObject("obj1", Seq(

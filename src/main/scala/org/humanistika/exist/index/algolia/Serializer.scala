@@ -40,7 +40,23 @@ object Serializer {
   def serializeAsText(node: Node): Seq[Throwable] \/ String = {
     val properties = new Properties()
     properties.setProperty(OutputKeys.METHOD, "text")
-    serialize(node, properties)
+
+    if(node.isInstanceOf[Element]) {
+      // serialize the children of the element (avoids also serializing the attribute values)
+
+      val children = node.getChildNodes
+      val text: Seq[Seq[Throwable] \/ String] = for(i <- (0 until children.getLength))
+        yield serialize(children.item(i), properties)
+
+      text.map(_.left.getOrElse(Seq.empty)).flatten match {
+        case errors: Seq[Throwable] if errors.nonEmpty =>
+          errors.left
+        case _ =>
+          text.map(_.map(Some(_)).getOrElse(None)).flatten.mkString("").right
+      }
+    } else {
+      serialize(node, properties)
+    }
   }
 
   def serializeAsJson(element: Element, typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]): Seq[Throwable] \/ String = {
