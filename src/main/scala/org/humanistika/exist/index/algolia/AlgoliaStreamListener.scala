@@ -22,7 +22,7 @@ import java.util.{Properties, HashMap => JHashMap, Map => JMap}
 import javax.xml.XMLConstants
 import javax.xml.namespace.QName
 
-import org.exist.dom.persistent.{AttrImpl, ElementImpl, NamedNode, NodeProxy}
+import org.exist.dom.persistent._
 import org.exist.indexing.AbstractStreamListener
 import org.exist.storage.{DBBroker, NodePath}
 import org.exist.storage.txn.Txn
@@ -216,14 +216,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     context.push(ContextElement(element.getQName.toJavaQName, Map.empty))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      getString(element.left) match {
-        case \/-(elementText) =>
-          this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(elementText)))
-        case -\/(ts) =>
-          logger.error(s"Unable to serialize element docId=${element.getOwnerDocument.getDocId} nodeId=${element.getNodeId.toString}", ts)
-      }
-    }
+    updateUserSpecifiedDocumentIds(pathClone, element.left)
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -245,14 +238,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     context.push(contextElement.copy(attributes = newAttributes))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(pathClone)) {
-      getString(attrib.right) match {
-        case \/-(attribValue) =>
-          this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(attribValue)))
-        case -\/(ts) =>
-          logger.error(s"Unable to serialize attribute docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
-      }
-    }
+    updateUserSpecifiedDocumentIds(pathClone, attrib.right)
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -260,14 +246,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
         updateProcessingChildren(pathClone, attrib.right)
 
         // update any user defined nodes ids which match this attribute
-        for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(pathClone)) {   //TODO(AR) do we need to compare the index name?
-          getString(attrib.right) match {
-            case \/-(attribValue) =>
-              this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(attribValue))
-            case -\/(ts) =>
-              logger.error(s"Unable to serialize attribute docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
-          }
-        }
+        updateUserSpecifiedNodeIds(pathClone, attrib)
 
       case _ => // do nothing
     }
@@ -316,6 +295,44 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
   override def endReplaceDocument(transaction: Txn) {
     this.replacingDocument = false
   }
+
+  private def updateUserSpecifiedDocumentIds(path: NodePath, node: ElementOrAttributeImpl): Unit = {
+    for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(path)) {
+      getString(node) match {
+        case \/-(idValue) if(!idValue.isEmpty) =>
+          this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(idValue)))
+
+        case \/-(idValue) if(idValue.isEmpty) =>
+          val name = foldNode(node, _.getNodeName)
+          val docId = foldNode(node, _.getOwnerDocument.getDocId)
+          val nodeId = foldNode(node, _.getNodeId.toString)
+          logger.error(s"UserSpecifiedDocumentIds: Unable to use empty string for node name=$name docId=$id nodeId=$nodeId")
+
+        case -\/(ts) =>
+          val name = foldNode(node, _.getNodeName)
+          val docId = foldNode(node, _.getOwnerDocument.getDocId)
+          val nodeId = foldNode(node, _.getNodeId.toString)
+          logger.error(s"UserSpecifiedDocumentIds: Unable to serialize node name=$name docId=$id nodeId=$nodeId", ts)
+      }
+    }
+  }
+
+  private def updateUserSpecifiedNodeIds(path: NodePath, attrib: AttrImpl): Unit = {
+    for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(path)) {   //TODO(AR) do we need to compare the index name?
+      getString(attrib.right) match {
+        case \/-(idValue) if(!idValue.isEmpty) =>
+          this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(idValue))
+
+        case \/-(idValue) if(idValue.isEmpty) =>
+          logger.error(s"UserSpecifiedNodeIds: Unable to use empty string for attribute name=${attrib.getNodeName} docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}")
+
+        case -\/(ts) =>
+          logger.error(s"UserSpecifiedNodeIds: Unable to serialize attribute name=${attrib.getNodeName} docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
+      }
+    }
+  }
+
+  def foldNode[T](node: ElementOrAttributeImpl, f: NodeImpl[_] => T): T = node.fold(f, f)
 
   private def removeForDocument() = {
     val docId = getWorker.getDocument.getDocId
@@ -376,7 +393,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     if (elementRootObjects.nonEmpty) {
       // index them
       elementRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeId(partialRootObject.indexName, pathClone))))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentIdOrWarn(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeIdOrWarn(partialRootObject.indexName, pathClone))))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.filterKeys(_ != pathClone)
@@ -392,7 +409,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     if (documentRootObjects.nonEmpty) {
       // index them
       documentRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentId(partialRootObject.indexName))))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentIdOrWarn(partialRootObject.indexName))))
     }
 
     // finish indexing any documents for which we have IndexableRootObjects
@@ -405,19 +422,39 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     this.userSpecifiedNodeIds = Map.empty
   }
 
-  private def getUserSpecifiedDocumentId(indexName: IndexName) : Option[UserSpecifiedDocumentId] = {
-    userSpecifiedDocumentIds
-      .get(indexName)
-      .flatMap(_.value)
+  private def getUserSpecifiedDocumentIdOrWarn(indexName: IndexName) : Option[UserSpecifiedDocumentId] = {
+    userSpecifiedDocumentIds.get(indexName) match {
+      case Some(userSpecifiedDocumentId) =>
+        userSpecifiedDocumentId.value match {
+          case value : Some[UserSpecifiedDocumentId] =>
+            value
+          case None =>
+            logger.warn(s"Unable to find user specified document id for index=${indexName} at path=${userSpecifiedDocumentId.path}, will use default!")
+            None
+        }
+      case None =>
+        None
+    }
   }
 
-  private def getUserSpecifiedNodeId(indexName: IndexName, rootObjectPath: NodePath) : Option[UserSpecifiedNodeId] = {
-    userSpecifiedNodeIds
+  private def getUserSpecifiedNodeIdOrWarn(indexName: IndexName, rootObjectPath: NodePath) : Option[UserSpecifiedNodeId] = {
+    val maybeKey = userSpecifiedNodeIds
       .keySet
       .filter{ case (name, path) => name == indexName && path.dropLastNew() == rootObjectPath }
       .headOption
-      .flatMap(userSpecifiedNodeIds.get(_))
-      .flatten
+
+    maybeKey match {
+      case Some(key) =>
+        userSpecifiedNodeIds(key) match {
+          case value : Some[UserSpecifiedNodeId] =>
+            value
+          case None =>
+            logger.warn(s"Unable to find user specified node id for index=${indexName} at path=${key._2}, will use default!")
+            None
+        }
+      case None =>
+        None
+    }
   }
 
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
@@ -508,18 +545,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, s
     firstMatchFailure.isEmpty
   }
 
-  private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = {
-    node match {
-      case -\/(element) =>
-        serializeAsText(element)
-      case \/-(attribute) =>
-        attribute.getValue.right
-    }
-  }
+  private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = node.fold(serializeAsText, _.getValue.right)
 
   private def updateProcessingChildren(path: NodePath, node: ElementOrAttributeImpl) {
 
-    def nodeIdStr(node: ElementOrAttributeImpl) : String = node.fold(_.getNodeId.toString, _.getNodeId.toString)
+    def nodeIdStr(node: ElementOrAttributeImpl) : String = foldNode(node, _.getNodeId.toString)
 
     def mergeIndexableChildren(existingChildren: Seq[IndexableAttributeOrObject], newChildren: Seq[IndexableAttributeOrObject]): Seq[IndexableAttributeOrObject] = {
 
