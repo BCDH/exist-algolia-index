@@ -81,6 +81,51 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
     }
 
 
+    "produce the correct actor messages for a index config with predicates" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-predicate"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-predicate")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/predicate/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/predicate/VSK.TEST.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+        -\/(("dict",  Seq("1.5.2.2.4.1"))),
+        -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
+        -\/(("tr",    Seq("1.5.2.2.4.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
+        -\/(("dict",  Seq("1.5.2.2.6.1"))),
+        -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
+        -\/(("tr",    Seq("1.5.2.2.6.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.8"), None, Seq(
+        -\/(("dict",  Seq("1.5.2.2.8.1"))),
+        -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
+        -\/(("tr",    Seq("1.5.2.2.8.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.10"), None, Seq(
+        -\/(("dict",          Seq("1.5.2.2.10.1"))),
+        -\/(("inverse-lemma", Seq("1.5.2.2.10.3.3"))),
+        -\/(("tr",            Seq("1.5.2.2.10.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.12"), None, Seq(
+        -\/(("dict",  Seq("1.5.2.2.12.1"))),
+        -\/(("lemma", Seq("1.5.2.2.12.3.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
+    }
+
+
     "produce the correct actor messages for a basic index config with user specified docId" in new AkkaTestkitSpecs2Support {
 
       val indexName = "raskovnik-test-integration-user-specified-docId"

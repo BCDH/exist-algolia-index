@@ -518,10 +518,10 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
         case Some(attrValue) =>
           predicate.comparisonOperator match {
             case AtomicEqualsComparison if (predValue.size == 1) =>
-              attrValue == predValue
+              attrValue == predValue.head
 
             case AtomicNotEqualsComparison if (predValue.size == 1) =>
-              attrValue != predValue
+              attrValue != predValue.head
 
             case SequenceEqualsComparison if (!predValue.isEmpty) =>
               predValue.find(_ != attrValue).isEmpty

@@ -1,0 +1,96 @@
+<TEI xmlns="http://www.tei-c.org/ns/1.0" xml:id="VSK.TEST">
+    <teiHeader>
+        <fileDesc>
+            <titleStmt>
+                <title>Title</title>
+            </titleStmt>
+            <publicationStmt>
+                <p>Publication Information</p>
+            </publicationStmt>
+            <sourceDesc>
+                <p>Information about the source</p>
+            </sourceDesc>
+        </fileDesc>
+    </teiHeader>
+    <text>
+        <body>
+            <div xml:id="VSK.SR.letter.а" xml:base="VSK.SR.letter.%D0%B0.xml">
+                <entryFree xml:id="VSK.SR.Adam">
+                    <form type="lemma">
+                        <orth>Adam</orth>
+                    </form>
+                    <pc>,</pc>
+                    <gramGrp>
+                        <pos>m</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e403">
+                        <cit type="tr">
+                            <quote>Адам</quote>
+                        </cit>
+                        <pc>.</pc>
+                    </sense>
+                </entryFree>
+                <entryFree xml:id="VSK.SR.Addam">
+                    <form type="lemma">
+                        <orth>Addam</orth>
+                    </form>
+                    <pc>,</pc>
+                    <gramGrp>
+                        <pos>m</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e404">
+                        <cit type="tr">
+                            <quote>Аддам</quote>
+                        </cit>
+                        <pc>.</pc>
+                    </sense>
+                </entryFree>
+                <entryFree xml:id="VSK.SR.Adamm">
+                    <form type="lemma">
+                        <orth>Adamm</orth>
+                    </form>
+                    <pc>,</pc>
+                    <gramGrp>
+                        <pos>m</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e4043">
+                        <cit type="tr">
+                            <quote>Адамм</quote>
+                        </cit>
+                        <pc>.</pc>
+                    </sense>
+                </entryFree>
+                <entryFree xml:id="VSK.SR.Adammm">
+                    <form type="not-lemma">
+                        <orth>Adammm</orth>
+                    </form>
+                    <pc/>
+                    <gramGrp>
+                        <pos>m</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e40443">
+                        <cit type="tr">
+                            <quote>Адаммм</quote>
+                        </cit>
+                        <pc>.</pc>
+                    </sense>
+                </entryFree>
+                <entryFree xml:id="VSK.SR.Adammmm">
+                    <form type="lemma">
+                        <orth>Adammmmm</orth>
+                    </form>
+                    <pc/>
+                    <gramGrp>
+                        <pos>m.</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e404443">
+                        <cit type="not-tr">
+                            <quote>Адамммм</quote>
+                        </cit>
+                        <pc>.</pc>
+                    </sense>
+                </entryFree>
+            </div>
+        </body>
+    </text>
+</TEI>
