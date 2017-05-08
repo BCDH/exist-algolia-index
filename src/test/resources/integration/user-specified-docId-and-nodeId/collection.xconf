@@ -1,0 +1,23 @@
+<collection xmlns="http://exist-db.org/collection-config/1.0">
+    <index xmlns:tei="http://www.tei-c.org/ns/1.0" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <algolia>
+            <namespaceMappings>
+                <namespaceMapping>
+                    <prefix>tei</prefix>
+                    <namespace>http://www.tei-c.org/ns/1.0</namespace>
+                </namespaceMapping>
+                <namespaceMapping>
+                    <prefix>xml</prefix>
+                    <namespace>http://www.w3.org/XML/1998/namespace</namespace>
+                </namespaceMapping>
+            </namespaceMappings>
+            <index name="raskovnik-test-integration-user-specified-docId-and-nodeId" documentId="/tei:TEI/@xml:id">
+                <rootObject path="/tei:TEI/tei:text/tei:body/tei:div/tei:entryFree" nodeId="@xml:id">
+                    <attribute name="lemma" path="/tei:form/tei:orth"/>
+                    <attribute name="dict" path="@xml:id"/>
+                    <attribute name="tr" path="/tei:sense/tei:cit/tei:quote"/>
+                </rootObject>
+            </index>
+        </algolia>
+    </index>
+</collection>

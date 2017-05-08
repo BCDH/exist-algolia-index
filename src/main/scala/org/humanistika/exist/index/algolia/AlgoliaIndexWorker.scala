@@ -29,7 +29,7 @@ import org.exist.xquery.XQueryContext
 import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
-import akka.actor.{ActorPath, ActorSystem}
+import akka.actor.{ActorPath, ActorRef, ActorSystem}
 import org.apache.logging.log4j.{LogManager, Logger}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.RemoveForCollection
@@ -46,11 +46,10 @@ object AlgoliaIndexWorker {
 }
 
 
-class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSystem) extends IndexWorker {
-  private val incrementalIndexingActor = system.actorSelection(ActorPath.fromString(s"akka://${AlgoliaIndex.SYSTEM_NAME}/user/${IncrementalIndexingManagerActor.ACTOR_NAME}"))
+class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSystem, incrementalIndexingManagerActor: ActorRef) extends IndexWorker {
   private var indexConfig: Option[Algolia] = None
   private val currentContext = Context(None, None)
-  private val listener = new AlgoliaStreamListener(this, broker, system)
+  private val listener = new AlgoliaStreamListener(this, broker, incrementalIndexingManagerActor)
 
   def getIndex = index
 
@@ -127,7 +126,7 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
       case Some(collectionAlgoliaConf) =>
         val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
         for (indexName <- indexNames) {
-          incrementalIndexingActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
+          incrementalIndexingManagerActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
         }
     }
   }

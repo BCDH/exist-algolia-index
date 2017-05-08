@@ -57,8 +57,13 @@ libraryDependencies ++= {
       exclude("org.slf4j", "slf4j-api"),
 
     "com.typesafe.akka" %% "akka-actor" % akkaV,
+    "com.typesafe.akka" %% "akka-testkit" % akkaV,
 
-    "org.specs2" %% "specs2-core" % "3.8.8" % Test
+    "org.specs2" %% "specs2-core" % "3.8.8" % Test,
+    "org.easymock" % "easymock" % "3.4" % Test,
+
+    "org.exist-db" % "exist-start" % existV % Test,
+    "org.apache.httpcomponents" % "httpclient" % "4.5.2" % Test
   )
 }
 

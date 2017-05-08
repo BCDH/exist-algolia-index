@@ -33,14 +33,25 @@ import scala.collection.JavaConverters._
 object AlgoliaIndex {
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndex])
   val ID: String = AlgoliaIndex.getClass.getName
-  val SYSTEM_NAME = "AlgoliaIndex"
+  val DEFAULT_SYSTEM_NAME = "AlgoliaIndex"
   case class Authentication(applicationId: String, adminApiKey: String)
 }
 
-class AlgoliaIndex extends AbstractIndex {
+/**
+  * @param _system allows us to inject an ActorSystem for our tests
+  * @param _incrementalIndexingManagerActor allows us to inject a TestKit ActorRef for our Tests
+  */
+class AlgoliaIndex(_system: Option[ActorSystem] = None, _incrementalIndexingManagerActor: Option[ActorRef] = None) extends AbstractIndex {
   private var system: Option[ActorSystem] = None
   private var incrementalIndexingManagerActor: Option[ActorRef] = None
   private var apiAuthentication: Option[Authentication] = None
+
+  /**
+    * Default constructor needed for use with eXist-db
+    */
+  def this() {
+    this(None, None)
+  }
 
   override def configure(pool: BrokerPool, dataDir: Path, config: Element) {
     // get the authentication credentials from the config
@@ -59,8 +70,8 @@ class AlgoliaIndex extends AbstractIndex {
   }
 
   override def open() {
-    this.system = Some(ActorSystem(SYSTEM_NAME))
-    this.incrementalIndexingManagerActor = system.map(_.actorOf(Props(classOf[IncrementalIndexingManagerActor], getDataDir), IncrementalIndexingManagerActor.ACTOR_NAME))
+    this.system = _system.orElse(Some(ActorSystem(DEFAULT_SYSTEM_NAME)))
+    this.incrementalIndexingManagerActor = _incrementalIndexingManagerActor.orElse(system.map(_.actorOf(Props(classOf[IncrementalIndexingManagerActor], getDataDir), IncrementalIndexingManagerActor.ACTOR_NAME)))
     this.incrementalIndexingManagerActor.foreach(actor => apiAuthentication.foreach(auth => actor ! auth))
 
     // recommended by Algolia
@@ -74,7 +85,7 @@ class AlgoliaIndex extends AbstractIndex {
   override def getWorker(broker: DBBroker): IndexWorker = {
     system match {
       case Some(sys) if !sys.isTerminated =>
-        new AlgoliaIndexWorker(this, broker, sys)
+        incrementalIndexingManagerActor.map(new AlgoliaIndexWorker(this, broker, sys, _)).getOrElse(null)
       case _ =>
         null
     }

@@ -19,7 +19,6 @@ package org.humanistika.exist.index.algolia
 
 import java.util.{ArrayDeque, Deque}
 import java.util.{Properties, HashMap => JHashMap, Map => JMap}
-import javax.xml.XMLConstants
 import javax.xml.namespace.QName
 
 import org.exist.dom.persistent._
@@ -31,17 +30,15 @@ import org.exist.dom.memtree.{DocumentBuilderReceiver, MemTreeBuilder}
 import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
-import akka.actor.{ActorPath, ActorSystem}
+import akka.actor.ActorRef
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 
 import scala.collection.JavaConverters._
 import scalaz._
 import Scalaz._
-import scala.annotation.tailrec
 
 
 object AlgoliaStreamListener {
@@ -162,11 +159,9 @@ object AlgoliaStreamListener {
   }
 }
 
-class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, system: ActorSystem) extends AbstractStreamListener {
+class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, incrementalIndexingActor: ActorRef) extends AbstractStreamListener {
 
   private val logger = Logger(classOf[AlgoliaStreamListener])
-
-  private val incrementalIndexingActor = system.actorSelection(ActorPath.fromString(s"akka://${AlgoliaIndex.SYSTEM_NAME}/user/${IncrementalIndexingManagerActor.ACTOR_NAME}"))
 
   private val ns: JMap[String, String] = new JHashMap
   private var indexConfigs: Map[IndexName, org.exist_db.collection_config._1.Index] = Map.empty
