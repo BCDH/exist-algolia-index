@@ -22,11 +22,11 @@ headers := Map(
 
 libraryDependencies ++= {
 
-  val scalazV = "7.2.7"
-  val fs2V = "0.9.2"
-  val existV = "3.0"
-  val algoliaV = "2.8.0"
-  val akkaV = "2.4.14"
+  val scalazV = "7.2.12"
+  val fs2V = "0.9.5"
+  val existV = "3.2.0"
+  val algoliaV = "2.9.0"
+  val akkaV = "2.4.17"
   val jacksonV = "2.7.4"
 
   Seq(
@@ -40,11 +40,11 @@ libraryDependencies ++= {
     "org.clapper" %% "grizzled-slf4j" % "1.3.0"
       exclude("org.slf4j", "slf4j-api"),
 
-    "org.exist-db" % "exist-core" % existV % "provided"
+    "org.exist-db" % "exist-core" % existV % Provided
       exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
-    "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % "provided",
-    "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % "provided",
-    "commons-codec" %	"commons-codec"	% "1.10" % "provided",
+    "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % Provided,
+    "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
+    "commons-codec" %	"commons-codec"	% "1.10" % Provided,
 
     "com.fasterxml.jackson.core" % "jackson-databind" % jacksonV
       exclude("com.fasterxml.jackson.core", "jackson-core"),
@@ -58,7 +58,7 @@ libraryDependencies ++= {
 
     "com.typesafe.akka" %% "akka-actor" % akkaV,
 
-    "org.specs2" %% "specs2-core" % "3.8.6" % "test"
+    "org.specs2" %% "specs2-core" % "3.8.8" % Test
   )
 }
 

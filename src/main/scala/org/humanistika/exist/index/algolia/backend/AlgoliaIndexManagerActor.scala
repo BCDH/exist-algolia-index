@@ -141,7 +141,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
         logger.trace(s"Removing document (id=$documentId, userSpecificDocId=$userSpecifiedDocumentId) from index: $indexName")
       }
       val query = new Query()
-      query.setRestrictSearchableAttributes(DOCUMENT_ID_FIELD_NAME)
+      query.setRestrictSearchableAttributes(List(DOCUMENT_ID_FIELD_NAME).asJava)
       query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
       algoliaIndex.deleteByQuery(query)
 
@@ -150,7 +150,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
         logger.trace(s"Removing documents for Collection (path=$collectionPath) from index: $indexName")
       }
       val query = new Query()
-      query.setRestrictSearchableAttributes(COLLECTION_PATH_FIELD_NAME)
+      query.setRestrictSearchableAttributes(List(COLLECTION_PATH_FIELD_NAME).asJava)
       query.setQuery(collectionPath)
       algoliaIndex.deleteByQuery(query)
 
