@@ -33,6 +33,7 @@ import Serializer._
 import akka.actor.ActorRef
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
+import org.exist.numbering.DLN
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 
@@ -327,6 +328,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     }
   }
 
+  //def fold[LR, T](disjunction: \/[_ <: LR, _ <: LR], f: LR => T): T = disjunction.fold(f, f)
   def foldNode[T](node: ElementOrAttributeImpl, f: NodeImpl[_] => T): T = node.fold(f, f)
 
   private def removeForDocument() = {
@@ -561,12 +563,21 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
       def sameSide[L,R](a: \/[L, R], b: \/[L,R]): Boolean = (a.isLeft && b.isLeft) || (a.isRight && b.isRight)
 
+      def mergeIndexableValues(existingIndexableValues: IndexableValues, newIndexableValues: IndexableValues): IndexableValues = {
+        def isAttrOf(elemNodeId: String, attrNodeId: String): Boolean = {
+          new DLN(elemNodeId).equals(new DLN(attrNodeId).getParentId)
+        }
+
+        // combine the two, filtering out any DOM attributes from existingIndexableValues which have DOM elements in newIndexableValues
+        existingIndexableValues.filterNot(existingIndexableValue => newIndexableValues.find(newIndexableValue => isAttrOf(newIndexableValue.id, existingIndexableValue.id)).nonEmpty) ++ newIndexableValues
+      }
+
       // step 1, add any newChildren.value to the existingChildren where they match
       val updatedExistingChildren: Seq[IndexableAttributeOrObject] = existingChildren.map{ existingChild =>
         val matchingNewValues: IndexableValues = getMatchingNewChildren(existingChild).flatMap(_.fold(_.values, _.values))
         existingChild
-          .map(existingObj => existingObj.copy(values = existingObj.values ++ matchingNewValues))
-          .leftMap(existingAttr => existingAttr.copy(values = existingAttr.values ++ matchingNewValues))
+          .map(existingObj => existingObj.copy(values = mergeIndexableValues(existingObj.values, matchingNewValues)))
+          .leftMap(existingAttr => existingAttr.copy(values = mergeIndexableValues(existingAttr.values, matchingNewValues)))
       }
 
       // step 2, add any newChildren which don't have existingChildren matches

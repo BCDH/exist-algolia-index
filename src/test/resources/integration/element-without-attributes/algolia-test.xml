@@ -1,0 +1,167 @@
+<TEI xmlns="http://www.tei-c.org/ns/1.0" xml:id="TEST">
+  <teiHeader>
+      <fileDesc>
+         <titleStmt>
+            <title>Title</title>
+         </titleStmt>
+         <publicationStmt>
+            <p>Publication Information</p>
+         </publicationStmt>
+         <sourceDesc>
+            <p>Information about the source</p>
+         </sourceDesc>
+      </fileDesc>
+  </teiHeader>
+  <text>
+      <body>
+          <div xml:id="VSK.SR.letter.Б" xml:base="VSK.SR.letter.%D0%B1.xml">
+                <entryFree xml:id="VSK.SR.баба1" type="hom" n="1" corresp="#VSK.SR.баба2">
+                    <form type="lemma">
+                        <orth norm="баба">ба̏ба</orth>
+                    </form>,
+                    <form type="lemma">
+                        <!--fake alt spelling here, to test multiple lemmas -->
+                        <orth norm="бабба">ба̏бба</orth>
+                    </form>,
+                    <gramGrp>
+                        <pos>f.</pos>
+                    </gramGrp>
+                    (<form type="inflected">
+                        <lbl>gen. pl.</lbl>
+                        <orth>ба̑ба̑</orth>
+                    </form>)
+                    <sense xml:id="d1e15960" n="1">
+                        <def>очина или материна мајка</def>,
+                        <cit type="translation">
+                            <quote xml:lang="de">die Grossmutter</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">avia</quote>
+                        </cit>,
+                        <cit type="translation">
+                         <!--   fake alt tr to test multiple translation equivalents per language-->
+                            <quote xml:lang="la">avvia</quote>
+                        </cit>.
+                        <xr type="cf" source="#thirdEd">
+                            <lbl>cf.</lbl>
+                            <ref target="#VSK.SR.стара.2">
+                                <rs type="lemma">стара</rs>
+                                <rs type="senseNum">2</rs>
+                            </ref>
+                        </xr>.
+                    </sense>
+                    <sense xml:id="d1e16003" n="2">
+                        <def>стара жена</def>,
+                        <cit type="translation">
+                            <quote xml:lang="de">altes Weib</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">vetula</quote>
+                        </cit>.
+                        <xr type="cf" source="#thirdEd">
+                            <lbl>cf.</lbl>
+                            <ref target="#VSK.SR.стара.1">
+                                <rs type="lemma">стара</rs>
+                                <rs type="senseNum">1</rs>
+                            </ref>,
+                            <ref target="#VSK.SR.старица">
+                                <rs type="lemma">старица</rs>
+                            </ref>
+                        </xr>.
+                    </sense>
+                    <sense xml:id="d1e16054" n="3">
+                        <def>у Дубровнику се свака <ref target="VSK.SR.дојкиња" rend="extended">
+                                <rs type="lemma">дојкиња</rs>
+                            </ref> и <ref target="VSK.SR.дадиља" rend="extended">
+                                <rs type="lemma">дадиља</rs>
+                            </ref> зове <hi rend="italic">баба</hi>, макар била и дјевојка од 12
+                            година</def>,
+                        <cit type="translation">
+                            <quote xml:lang="de">die Amme</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="de">Kindsfrau</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">nutrix</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">ancilla curans parvulos</quote>
+                        </cit>.
+                    </sense>
+                    <sense n="4" xml:id="d1e16093">
+                        <usg type="hint">многи муж зове своју <ref target="#VSK.SR.жена.2" rend="extended">
+                                <rs type="lemma">жену</rs>
+                                <rs type="senseNum" source="#thirdEd">2</rs>
+                            </ref>
+                            <hi rend="italic">бабом,</hi> ако и није стара</usg>.
+                    </sense>
+                    <sense n="5" xml:id="d1e16099">
+                        <usg type="hint">гдјекоји и за <ref target="#VSK.SR.пуница.1" rend="extended">
+                                <rs type="lemma">пуницу</rs>
+                                <rs type="senseNum" source="#thirdEd">1</rs>
+                            </ref> реку: моја <hi rend="italic">баба</hi>
+                        </usg>,
+                        <cit type="translation">
+                            <quote xml:lang="de">die Schwiegermutter</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">socrus</quote>
+                        </cit>.
+                    </sense>
+                    <sense n="6" xml:id="d1e16105">
+                        [<rs type="geo" ana="place" rend="italic" source="#thirdEd">Баба</rs>
+                        ]
+                        <def>планина у <rs type="geo" ana="place">Србији</rs> између <rs type="geo" ana="place">Ниша</rs> и <rs type="geo" ana="place">Параћина</rs>
+                            [близу <rs type="geo" ana="place">Мораве</rs> изнад села <rs type="geo" ana="place">Лешја</rs>, у <rs type="geo" ana="place">срезу
+                                параћинском</rs>
+                            <rs type="geo" ana="place">округа моравског</rs>]</def>,
+                        <cit type="translation">
+                            <quote xml:lang="de">ein Berg in Serbien</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">mons Serbiae</quote>
+                        </cit>.
+                    </sense>
+                    <sense n="7" xml:id="d1e16111">
+                        [<rs type="geo" ana="place" rend="italic" source="#thirdEd">Ваба</rs>
+                        ]
+                        <cit type="translation">
+                            <quote xml:lang="de">ein Berg in der Herzegowina</quote>
+                        </cit>,
+                        <cit type="translation">
+                            <quote xml:lang="la">mons Hercegovinae</quote>
+                        </cit>.
+                    </sense>
+                    <sense n="8" xml:id="d1e16118">
+                        <usg type="hint">превести <hi rend="italic">бабу</hi>, кажу дјеца кад баце
+                            малу плочицу од камена преко воде, али је тако баце да одскаче поврх
+                            воде</usg>.
+                    </sense>
+                </entryFree>
+                <entryFree xml:id="VSK.SR.баба2" type="hom" n="2" corresp="#VSK.SR.баба1">
+                    <form type="lemma">
+                        <orth norm="баба">ба́ба</orth>
+                    </form>
+                    [
+                    <etym source="#thirdEd">
+                        <lang value="tr">*</lang>
+                    </etym>
+                    ]
+                    <gramGrp>
+                        <pos>m.</pos>
+                    </gramGrp>
+                    <sense xml:id="d1e16143">
+                        <usg type="diatopic">(<rs ref="references/places.xml#istok" type="geo" ana="place">ист.</rs>)</usg>
+                        <xr type="vide">
+                            <lbl>vide</lbl>
+                            <ref target="#VSK.SR.бабо">
+                                <rs type="lemma">бабо</rs>
+                            </ref>
+                        </xr>.
+                    </sense>
+                </entryFree>
+          </div>
+      </body>
+  </text>
+</TEI>

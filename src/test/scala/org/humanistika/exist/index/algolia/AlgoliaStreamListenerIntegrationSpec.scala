@@ -81,6 +81,40 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
     }
 
 
+    "produce the correct actor messages for elements with attributes" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-element-without-attributes"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-element-without-attributes")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/element-without-attributes/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/element-without-attributes/algolia-test.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+          -\/(("lemma", Seq(
+              "1.5.2.2.4.6.3",
+              "1.5.2.2.4.8.5",
+              "1.5.2.2.4.12.5")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
+          -\/(("lemma", Seq(
+              "1.5.2.2.6.6.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
+    }
+
+
     "produce the correct actor messages for a index config with predicates" in new AkkaTestkitSpecs2Support {
 
       val indexName = "raskovnik-test-integration-predicate"
