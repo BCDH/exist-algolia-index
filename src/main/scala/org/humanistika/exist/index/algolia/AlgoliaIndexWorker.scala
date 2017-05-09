@@ -22,7 +22,7 @@ import javax.xml.bind.JAXBContext
 import org.exist.collections.Collection
 import org.exist.dom.persistent._
 import org.exist.indexing.StreamListener.ReindexMode
-import org.exist.indexing.{IndexController, IndexWorker}
+import org.exist.indexing.{IndexController, IndexWorker, StreamListener}
 import org.exist.storage.{DBBroker, NodePath}
 import org.exist.util.Occurrences
 import org.exist.xquery.XQueryContext
@@ -137,7 +137,11 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
 
   override def getIndexName = index.getIndexName
 
-  override def getListener = listener
+  /**
+    * Only return the listener if we have a valid
+    * configuration for the Collection
+    */
+  override def getListener: StreamListener = indexConfig.map(_ => listener).getOrElse(null)
 
   def getConfig = indexConfig
 }
