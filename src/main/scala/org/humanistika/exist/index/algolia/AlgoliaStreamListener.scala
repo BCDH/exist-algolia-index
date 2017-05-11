@@ -497,9 +497,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
             Nil
           case contextElement :: tail =>
             val contextElementName = contextElement.name
-            if (component.name.name == contextElementName &&
-              (currentNode.isInstanceOf[AttrImpl]
-                || (currentNode.isInstanceOf[ElementImpl] && predicatesMatch(contextElement.attributes)(component.predicates)))) {
+            if (component.name.name == contextElementName && predicatesMatch(contextElement.attributes)(component.predicates)
+              /*(currentNode.isInstanceOf[AttrImpl]
+                || (currentNode.isInstanceOf[ElementImpl] && predicatesMatch(contextElement.attributes)(component.predicates))) */) {
               tail
             } else {
               contextElement :: tail

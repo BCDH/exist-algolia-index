@@ -159,6 +159,34 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
+    "produce the correct actor messages for a index config with multiple predicates on a path" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-multi-predicates"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-multi-predicates")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/multi-predicates/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/multi-predicates/algolia-test.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+          -\/(("trde", Seq("1.5.2.2.4.14.6.3", "1.5.2.2.4.16.6.3", "1.5.2.2.4.18.6.3", "1.5.2.2.4.18.8.3", "1.5.2.2.4.22.6.3", "1.5.2.2.4.24.8.3", "1.5.2.2.4.26.6.3"))),
+          -\/(("trla", Seq("1.5.2.2.4.14.8.3", "1.5.2.2.4.14.10.5", "1.5.2.2.4.16.8.3", "1.5.2.2.4.18.10.3", "1.5.2.2.4.18.12.3", "1.5.2.2.4.22.8.3", "1.5.2.2.4.24.10.3", "1.5.2.2.4.26.8.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
+    }
+
 
     "produce the correct actor messages for a basic index config with user specified docId" in new AkkaTestkitSpecs2Support {
 
