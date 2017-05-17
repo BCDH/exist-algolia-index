@@ -209,7 +209,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
 
   def e20 = {
     val attr1 = attr(dom("""<w value="hello"/>"""), "value")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", \/-(attr1))), Map.empty)))
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", \/-(attr1))), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 45, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"45/48/1","collection":"/db/a1","documentID":48,"obj1":"hello"}"""
   }
@@ -222,35 +222,35 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val objects = Seq(\/-(IndexableObject("obj1", Seq(
       IndexableValue("1.1.1", \/-(attr1_1)),
       IndexableValue("1.2.1", \/-(attr1_2))
-    ), Map.empty)))
+    ), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 46, 49, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"46/49/1","collection":"/db/a1","documentID":49,"obj1":["hello","world"]}"""
   }
 
   def e22 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y></w>"""), "w")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 5, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"5/48/1","collection":"/db/a1","documentID":48,"obj1":{"nodeId":"1.1","x":"hello","y":"world"}}"""
   }
 
   def e23 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><z>world</z><zz>again</zz></y></w>"""), "w")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 2, 49, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"2/49/1","collection":"/db/a1","documentID":49,"obj1":{"nodeId":"1.1","x":"hello","y":{"z":"world","zz":"again"}}}"""
   }
 
   def e24 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y><y>again</y></w>"""), "w")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 3, 50, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"3/50/1","collection":"/db/a1","documentID":50,"obj1":{"nodeId":"1.1","x":"hello","y":["world","again"]}}"""
   }
 
   def e25 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><yy>world</yy><yy>again</yy></y></w>"""), "w")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty)))
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1))), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 51, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/51/1","collection":"/db/a1","documentID":51,"obj1":{"nodeId":"1.1","x":"hello","y":{"yy":["world","again"]}}}"""
   }
@@ -261,7 +261,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val objects = Seq(\/-(IndexableObject("obj1", Seq(
       IndexableValue("1.1", -\/(ww(0))),
       IndexableValue("1.2", -\/(ww(1)))
-    ), Map.empty)))
+    ), Map.empty, Map.empty)))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 52, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/52/1","collection":"/db/a1","documentID":52,"obj1":[{"nodeId":"1.1","x":"hello","y":{"yy":["world","again"]}},{"nodeId":"1.2","x":"goodbye","y":{"yy":["until","next time"]}}]}"""
   }

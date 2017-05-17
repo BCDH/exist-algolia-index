@@ -152,7 +152,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
   private def serializeObject(obj: IndexableObject, gen: JsonGenerator, serializers: SerializerProvider) {
     def serialize(element: Element) = {
-      val json = serializeAsJson(element, obj.typeMappings)
+      val json = serializeAsJson(element, obj.serializerProperties, obj.typeMappings)
       val jsonBody = json.map(jsonObjectAsObjectBody(_))
 
       jsonBody match {

@@ -17,8 +17,7 @@
 
 package org.humanistika.exist.index.algolia
 
-import java.util.{ArrayDeque, Deque}
-import java.util.{Properties, HashMap => JHashMap, Map => JMap}
+import java.util.{ArrayDeque, Deque, HashMap => JHashMap, Map => JMap, Properties => JProperties}
 import javax.xml.namespace.QName
 
 import org.exist.dom.persistent._
@@ -27,7 +26,7 @@ import org.exist.storage.{DBBroker, NodePath}
 import org.exist.storage.txn.Txn
 import AlgoliaStreamListener._
 import org.exist.dom.memtree.{DocumentBuilderReceiver, MemTreeBuilder}
-import org.exist_db.collection_config._1.{Algolia, LiteralType, RootObject}
+import org.exist_db.collection_config._1.{Algolia, LiteralType, Properties, RootObject}
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
 import akka.actor.ActorRef
@@ -52,7 +51,7 @@ object AlgoliaStreamListener {
 
       val nodeNr = builder.getDocument.getLastNode
       val nodeProxy = new NodeProxy(element.getOwnerDocument, element.getNodeId)
-      nodeProxy.toSAX(broker, receiver, new Properties())
+      nodeProxy.toSAX(broker, receiver, new JProperties())
 
       builder.getDocument.getNode(nodeNr + 1).asInstanceOf[org.exist.dom.memtree.ElementImpl]
     }
@@ -620,7 +619,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
       val objectsConfig = partialRootObject.config.getObject.asScala
         .filter(objConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, objConf.getPath)))
-      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), getObjectMappings(objectConfig)))
+      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), toScalaProperties(Option(objectConfig.getSerializer).flatMap(s => Option(s.getProperties))), getObjectMappings(objectConfig)))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
         val newChildren : Seq[IndexableAttribute \/ IndexableObject] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.right) ++ attributes.map(_.left))
@@ -630,6 +629,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
         this.processing = this.processing + (rootObjectNodePath -> newPartialRootObjects)
       }
     }
+  }
+
+  private def toScalaProperties(properties: Option[Properties]): Map[String, String] = {
+    properties.map(_.getProperty.asScala.map(property => (property.getName -> property.getValue)).toMap)
+      .getOrElse(Map.empty)
   }
 
   // see http://stackoverflow.com/questions/42656550/xjc-generating-wrong-liststring-for-xmlattribute

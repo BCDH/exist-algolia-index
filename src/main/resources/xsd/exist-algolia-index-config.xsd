@@ -154,6 +154,7 @@
     </xs:annotation>
     <xs:complexType>
       <xs:sequence>
+        <xs:element ref="c:serializer" minOccurs="0"/>
         <xs:element ref="c:mapping" minOccurs="0" maxOccurs="unbounded"/>
       </xs:sequence>
       <xs:attributeGroup ref="c:name"/>
@@ -166,6 +167,38 @@
       <xs:attributeGroup ref="c:name"/>
       <xs:attributeGroup ref="c:absoluteElementPathOrAbsoluteOrRelativeAttributePathWithPredicate"/>
       <xs:attribute name="type" use="optional" default="string" type="c:literalType"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="serializer">
+    <xs:annotation>
+      <xs:documentation>Settings for the serializer</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:properties" minOccurs="0"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="properties">
+    <xs:annotation>
+      <xs:documentation>Collection of Property</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="c:property" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="property">
+    <xs:annotation>
+      <xs:documentation>Simple a key/value property</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="name" type="xs:string" use="required"/>
+      <xs:attribute name="value" type="xs:string" use="required"/>
     </xs:complexType>
   </xs:element>
 

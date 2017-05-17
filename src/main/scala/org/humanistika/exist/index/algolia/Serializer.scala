@@ -59,11 +59,22 @@ object Serializer {
     }
   }
 
-  def serializeAsJson(element: Element, typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]): Seq[Throwable] \/ String = {
+  def serializeAsJson(element: Element, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]): Seq[Throwable] \/ String = {
     //TODO(AR) need to set the type/name mappings
     val properties = new Properties()
-    properties.setProperty(OutputKeys.METHOD, "json")
+
+    // default to indent = no
     properties.setProperty(OutputKeys.INDENT, "no")
+
+    // set user specified serializer properties
+    for((key, value) <- serializerProperties) {
+      properties.setProperty(key, value)
+    }
+
+    // always the serialization type must be json,
+    // which is why we set this after the user specified properties
+    properties.setProperty(OutputKeys.METHOD, "json")
+
     serialize(element, properties)
   }
 
