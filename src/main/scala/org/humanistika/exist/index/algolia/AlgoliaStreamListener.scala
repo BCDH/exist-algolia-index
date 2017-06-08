@@ -278,10 +278,9 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   }
 
   override def endElement(transaction: Txn, element: ElementImpl, path: NodePath) {
-    val pathClone = path.duplicate
-
     getWorker.getMode() match {
       case ReindexMode.STORE =>
+        val pathClone = path.duplicate
         endElementForStore(transaction, element, pathClone)
 
       case _ => // do nothing
