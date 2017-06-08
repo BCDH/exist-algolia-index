@@ -306,10 +306,15 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         .getOrElse(indexableRootObject.nodeId
           .getOrElse(DOCUMENT_NODE_ID))
 
-      managed(Files.newBufferedWriter(dir.resolve(s"${usableNodeId}.json"))).map{ writer =>
+      val file = dir.resolve(s"${usableNodeId}.json")
+      managed(Files.newBufferedWriter(file)).map{ writer =>
         writer.write(serializeJson(indexableRootObject))
       }.tried match {
         case Success(_) =>
+          if(logger.isTraceEnabled) {
+            logger.trace(s"Stored JSON rootObject '${file}' for (collectionPath=${indexableRootObject.collectionPath}, docId=${indexableRootObject.documentId}, userSpecificDocId=${indexableRootObject.userSpecifiedDocumentId}, nodeId=${indexableRootObject.nodeId}, userSpecificNodeId=${indexableRootObject.userSpecifiedNodeId}): ${indexDir.getFileName}")
+          }
+
         case Failure(t) => throw t    //TODO(AR) do some better error handling
       }
 
@@ -353,6 +358,9 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         case Some(docTimestampDir) =>
           // we now have the latest timestamp dir for the documentId
           if(FileUtils.deleteQuietly(docTimestampDir)) {
+            if (logger.isTraceEnabled) {
+              logger.trace(s"Removed JSON rootObjects '${docTimestampDir}' for (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}): ${indexDir.getFileName}")
+            }
             context.parent ! RemovedDocument(documentId)
           } else {
             throw new IllegalStateException(s"Unable to remove for document id: $usableDocId at timestamp: $maybeTimestamp, path: $docTimestampDir")
@@ -416,6 +424,10 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
           case \/-(r) => (lefts, rights :+ r)
         }
       }
+    }
+
+    if(logger.isTraceEnabled) {
+      logger.trace(s"Performing diff between: prev='$prev' and current='$current'")
     }
 
     removalsOrUpdates()

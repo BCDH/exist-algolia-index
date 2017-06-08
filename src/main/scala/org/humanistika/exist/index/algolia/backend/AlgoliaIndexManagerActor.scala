@@ -39,32 +39,51 @@ object AlgoliaIndexManagerActor {
 }
 
 class AlgoliaIndexManagerActor extends Actor {
+  private val logger = Logger(classOf[AlgoliaIndexManagerActor])
   private var client: Option[APIClient] = None
   private var perIndexActors: Map[IndexName, ActorRef] = Map.empty
 
   override def receive: Receive = {
     case auth: Authentication =>
+      if(logger.isTraceEnabled) {
+        logger.trace("Authenticating Algolia API Client");
+      }
       this.client = Some(new ApacheAPIClientBuilder(auth.applicationId, auth.adminApiKey).build())
 
     case IndexChanges(indexName, changes) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Relaying IndexChanges to per-index actors (id=${changes.documentId}, additions=${changes.additions.size}, updates=${changes.updates.size}, deletions=${changes.deletions.size}) for index: $indexName")
+      }
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! changes
 
-    case rfd @ RemoveForDocument(indexName, _, _) =>
+    case rfd @ RemoveForDocument(indexName, documentId, userSpecifiedDocumentId) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Initiating RemoveForDocument (id=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) for index: $indexName")
+      }
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! rfd
 
-    case rfc @ RemoveForCollection(indexName, _) =>
+    case rfc @ RemoveForCollection(indexName, collectionPath) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Initiating RemoveForCollection (path=${collectionPath}) for index: $indexName")
+      }
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! rfc
 
     case DropIndexes =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Initiating DropIndexes");
+      }
       for(indexName <- getClientOrThrow.listIndices.asScala.map(_.getName)) {
         val indexActor = getOrCreatePerIndexActor(indexName)
         indexActor ! DropIndex
       }
 
     case DroppedIndex(indexName: IndexName) =>
+      if(logger.isTraceEnabled) {
+        logger.trace(s"Dropped Index: $indexName")
+      }
       this.perIndexActors = perIndexActors - indexName
   }
 
