@@ -18,6 +18,7 @@
 package org.humanistika.exist.index
 
 import java.nio.file.Path
+import javax.xml.namespace.QName
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
@@ -36,6 +37,8 @@ package object algolia {
 
   type ElementOrAttributeImpl = ElementImpl \/ AttrImpl
   type ElementOrAttribute = Element \/ Attr
+  type AttributeKV = (QName, String)  // substitute for org.exist.dom.memtree.AttrImpl as we have has trouble converting from org.exist.dom.persistent.AttrImpl
+  type ElementOrAttributeKV = Element \/ AttributeKV
 
   type IndexableAttributeOrObject = IndexableAttribute \/ IndexableObject
 
@@ -57,7 +60,7 @@ package object algolia {
   case class IndexableObject(name: Name, values: IndexableValues, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
 
   type IndexableValues = Seq[IndexableValue]
-  case class IndexableValue(id: String, value: ElementOrAttribute)
+  case class IndexableValue(id: String, value: ElementOrAttributeKV)
 
   @JsonSerialize(using=classOf[LocalIndexableRootObjectJsonSerializer]) case class LocalIndexableRootObject(path: Path)
 

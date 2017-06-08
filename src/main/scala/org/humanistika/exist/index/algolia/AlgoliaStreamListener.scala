@@ -43,6 +43,34 @@ import Scalaz._
 
 object AlgoliaStreamListener {
 
+  private def asQName(namespaceMappings: Map[String, String], nsUri: Option[String], localPart: String, prefix: Option[String]) : QName = {
+    prefix match {
+      case Some(prfx) if(prfx.nonEmpty) =>
+        nsUri match {
+          case Some(ns) if(ns.nonEmpty) =>
+            new QName(ns, localPart, prfx)
+
+          case _ =>
+            namespaceMappings.get(prfx) match {
+              case Some(ns) if(ns.nonEmpty) =>
+                new QName(ns, localPart, prfx)
+
+              case _ =>
+                new QName(localPart)
+            }
+        }
+
+      case _ =>
+        nsUri match {
+          case Some(ns) if(ns.nonEmpty) =>
+            new QName(ns, localPart)
+
+          case _ =>
+            new QName(localPart)
+        }
+    }
+  }
+
   implicit class ElementImplUtils(element: org.exist.dom.persistent.ElementImpl) {
     def toInMemory(broker: DBBroker) : org.exist.dom.memtree.ElementImpl = {
       val builder = new MemTreeBuilder
@@ -588,7 +616,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       updatedExistingChildren ++ nonExistingNewChildren
     }
 
-    def toInMemory(node: ElementOrAttributeImpl): org.exist.dom.memtree.ElementImpl \/ org.exist.dom.memtree.AttrImpl = node.bimap(_.toInMemory(broker), _.toInMemory(broker))
+    def toInMemory(node: ElementOrAttributeImpl): org.exist.dom.memtree.ElementImpl \/ AttributeKV = node.bimap(_.toInMemory(broker), attr => (asQName(ns.asScala.toMap, Option(attr.getNamespaceURI), attr.getLocalName, Option(attr.getPrefix)), attr.getValue))
 
     def asNamedNode(node: ElementOrAttributeImpl) : NamedNode[_] = node.fold(_.asInstanceOf[NamedNode[ElementImpl]], _.asInstanceOf[NamedNode[AttrImpl]])
 

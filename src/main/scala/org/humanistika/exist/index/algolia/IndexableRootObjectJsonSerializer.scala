@@ -78,7 +78,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
       case IndexableValue(id, -\/(element)) =>
         serializeAsText(element)
       case IndexableValue(id, \/-(attribute)) =>
-        attribute.getValue.right
+        attribute._2.right
     }).foldLeft((Seq.empty[Throwable], Seq.empty[String])) { case (accum, lr) =>
       lr match {
         case \/-(str) if accum._1.isEmpty =>
@@ -177,7 +177,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
           gen.writeEndObject()
         case IndexableValue(_, \/-(attribute)) =>
-          writeValueField(gen, LiteralTypeConfig.String, attribute.getValue)
+          writeValueField(gen, LiteralTypeConfig.String, attribute._2)
       })
 
       gen.writeEndArray()
@@ -194,7 +194,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
         case IndexableValue(_, \/-(attribute)) =>
           //a org.w3c.dom.Attr can never be converted to an object, so just serialize the value as a String field
-          writeKeyValueField(gen, LiteralTypeConfig.String)(obj.name, attribute.getValue)
+          writeKeyValueField(gen, LiteralTypeConfig.String)(obj.name, attribute._2)
       })
     }
   }
