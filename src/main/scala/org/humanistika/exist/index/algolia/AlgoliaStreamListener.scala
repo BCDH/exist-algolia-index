@@ -50,7 +50,7 @@ object AlgoliaStreamListener {
       val receiver = new DocumentBuilderReceiver(builder, true)
 
       val nodeNr = builder.getDocument.getLastNode
-      val nodeProxy = new NodeProxy(element.getOwnerDocument, element.getNodeId)
+      val nodeProxy = new NodeProxy(element)
       nodeProxy.toSAX(broker, receiver, new JProperties())
 
       builder.getDocument.getNode(nodeNr + 1).asInstanceOf[org.exist.dom.memtree.ElementImpl]
