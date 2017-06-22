@@ -115,20 +115,26 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
   override def getMatchListener(broker: DBBroker, nodeProxy: NodeProxy) = null //TODO(AR) implement if we want to support Kwic etc
 
   override def removeCollection(collection: Collection, broker: DBBroker, reindex: Boolean) {
-    val maybeCollectionAlgoliaConf: Option[Algolia] = Option(collection.getConfiguration(broker))
-        .flatMap(collectionConfig => Option(collectionConfig.getIndexConfiguration)
-          .flatMap(indexSpec => Option(indexSpec.getCustomIndexSpec(AlgoliaIndex.ID)).map(_.asInstanceOf[Algolia])))
+    if(reindex) {
+      if(LOG.isTraceEnabled) {
+        LOG.trace(s"Ignoring removeCollection for ${collection.getURI} as this is first part of a reindex operation, and will be taken care of by diff in the store stage!")
+      }
+    } else {
+        val maybeCollectionAlgoliaConf: Option[Algolia] = Option(collection.getConfiguration(broker))
+          .flatMap(collectionConfig => Option(collectionConfig.getIndexConfiguration)
+            .flatMap(indexSpec => Option(indexSpec.getCustomIndexSpec(AlgoliaIndex.ID)).map(_.asInstanceOf[Algolia])))
 
-    maybeCollectionAlgoliaConf match {
-      case None =>
-        LOG.error("Cannot remove Algolia indexes for collection {}, no collection config found!", collection.getURI)
+        maybeCollectionAlgoliaConf match {
+          case None =>
+            LOG.error("Cannot remove Algolia indexes for collection {}, no collection config found!", collection.getURI)
 
-      case Some(collectionAlgoliaConf) =>
-        val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
-        for (indexName <- indexNames) {
-          incrementalIndexingManagerActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
+          case Some(collectionAlgoliaConf) =>
+            val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)
+            for (indexName <- indexNames) {
+              incrementalIndexingManagerActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
+            }
         }
-    }
+      }
   }
 
   override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]
