@@ -10,7 +10,7 @@ licenses := Seq("GNU General Public License, version 3" -> url("http://opensourc
 homepage := Some(url("https://github.com/bcdh/exist-algolia-index"))
 
 
-scalaVersion := "2.12.0"
+scalaVersion := "2.12.2"
 
 
 import de.heikoseeberger.sbtheader.license.GPLv3
@@ -22,22 +22,22 @@ headers := Map(
 
 libraryDependencies ++= {
 
-  val scalazV = "7.2.12"
-  val fs2V = "0.9.5"
+  val scalazV = "7.2.13"
+  val fs2V = "0.9.7"
   val existV = "3.2.0"
-  val algoliaV = "2.9.0"
-  val akkaV = "2.4.17"
+  val algoliaV = "2.10.0"
+  val akkaV = "2.4.19"
   val jacksonV = "2.7.4"
 
   Seq(
-    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.5",
+    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.6",
     "org.scala-lang.modules" %% "scala-java8-compat" % "0.8.0",
     "org.scalaz" %% "scalaz-core" % scalazV,
     "com.jsuereth" %% "scala-arm" % "2.0",
     "co.fs2" %% "fs2-core" % fs2V,
     "co.fs2" %% "fs2-io" % fs2V,
 
-    "org.clapper" %% "grizzled-slf4j" % "1.3.0"
+    "org.clapper" %% "grizzled-slf4j" % "1.3.1"
       exclude("org.slf4j", "slf4j-api"),
 
     "org.exist-db" % "exist-core" % existV % Provided
@@ -59,11 +59,11 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-actor" % akkaV,
     "com.typesafe.akka" %% "akka-testkit" % akkaV,
 
-    "org.specs2" %% "specs2-core" % "3.8.8" % Test,
+    "org.specs2" %% "specs2-core" % "3.9.1" % Test,
     "org.easymock" % "easymock" % "3.4" % Test,
 
     "org.exist-db" % "exist-start" % existV % Test,
-    "org.apache.httpcomponents" % "httpclient" % "4.5.2" % Test
+    "org.apache.httpcomponents" % "httpclient" % "4.5.3" % Test
   )
 }
 
