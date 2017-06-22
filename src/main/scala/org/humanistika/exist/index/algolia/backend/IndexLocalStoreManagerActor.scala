@@ -26,12 +26,12 @@ import akka.pattern.gracefulStop
 
 import scala.concurrent.duration._
 import com.fasterxml.jackson.databind.ObjectMapper
-import gnu.crypto.hash.RipeMD160
 import org.humanistika.exist.index.algolia._
 import IndexLocalStoreDocumentActor._
 import IncrementalIndexingManagerActor._
 import org.exist.util.FileUtils
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, OBJECT_ID_FIELD_NAME}
+import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUFFIX
 import resource._
 
 import scala.collection.JavaConverters._
@@ -41,6 +41,7 @@ import scalaz._
 import Scalaz._
 import fs2.{Task, io}
 import grizzled.slf4j.Logger
+import org.apache.commons.codec.binary.Base32
 
 object IndexLocalStoreManagerActor {
   val ACTOR_NAME = "IndexLocalStoreManager"
@@ -56,7 +57,7 @@ object IndexLocalStoreManagerActor {
   *         |
   *         | - my-index
   *             |
-  *             | - document-id
+  *             | - document-id (base32 encoded, if user specified)
   *                 |
   *                 | - timestamp
   */
@@ -110,6 +111,10 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
     perIndexLocalStoreActors = perIndexLocalStoreActors + (indexName -> perIndexActor)
     perIndexActor
   }
+}
+
+object IndexLocalStoreActor {
+  val FILE_SUFFIX = "json"
 }
 
 class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
@@ -237,7 +242,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
     managed(Files.list(timestampDir)).map { timestampDirStream =>
       timestampDirStream
         .filter(Files.isRegularFile(_))
-        .filter(FileUtils.fileName(_).endsWith(".json"))
+        .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
         .filter(matchesCollectionPathRoot)
         .collect(Collectors.toList())
         .asScala
@@ -290,23 +295,24 @@ object IndexLocalStoreDocumentActor {
   }
 }
 
+/**
+  * Note when using userSpecifiedDocumentIds or userSpecifiedNodeIds
+  * the ids will be base32 encoded to ensure that the filenames
+  * are correct on case-insensitive filesystems such as Mac HFS+
+  */
 class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) extends Actor {
   private lazy val logger = Logger(classOf[IndexLocalStoreDocumentActor])
-  private val ripeMd160 = new RipeMD160
 
   override def receive: Receive = {
     case Write(timestamp, indexableRootObject) =>
-      val usableDocId = usableDocumentId(indexableRootObject.userSpecifiedDocumentId, indexableRootObject.documentId)
-      val dir = getTimestampDir(usableDocId, timestamp)
+      val documentDirName = filenameUsableDocumentId(indexableRootObject.userSpecifiedDocumentId, indexableRootObject.documentId)
+      val dir = getTimestampDir(documentDirName, timestamp)
       if (!Files.exists(dir)) {
         Files.createDirectories(dir)
       }
 
-      val usableNodeId = indexableRootObject.userSpecifiedNodeId
-        .getOrElse(indexableRootObject.nodeId
-          .getOrElse(DOCUMENT_NODE_ID))
-
-      val file = dir.resolve(s"${usableNodeId}.json")
+      val nodeIdFilename = filenameUsableNodeId(indexableRootObject.userSpecifiedNodeId, indexableRootObject.nodeId)
+      val file = dir.resolve(s"${nodeIdFilename}.$FILE_SUFFIX")
       managed(Files.newBufferedWriter(file)).map{ writer =>
         writer.write(serializeJson(indexableRootObject))
       }.tried match {
@@ -319,8 +325,8 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       }
 
     case FindChanges(timestamp, userSpecifiedDocumentId, documentId) =>
-      val usableDocId = usableDocumentId(userSpecifiedDocumentId, documentId)
-      val dir = getTimestampDir(usableDocId, timestamp)
+      val documentDirName = filenameUsableDocumentId(userSpecifiedDocumentId, documentId)
+      val dir = getTimestampDir(documentDirName, timestamp)
       val prevDir = findPreviousDir(dir)
 
       prevDir match {
@@ -351,8 +357,8 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       }
 
     case RemoveDocument(documentId, userSpecifiedDocumentId, maybeTimestamp) =>
-      val usableDocId = usableDocumentId(userSpecifiedDocumentId, documentId)
-      val maybeDocTimestampDir = maybeTimestamp.map(getTimestampDir(usableDocId, _)).orElse(getLatestTimestampDir(getDocDir(usableDocId), None))
+      val documentDirName = filenameUsableDocumentId(userSpecifiedDocumentId, documentId)
+      val maybeDocTimestampDir = maybeTimestamp.map(getTimestampDir(documentDirName, _)).orElse(getLatestTimestampDir(getDocDir(documentDirName), None))
 
       maybeDocTimestampDir match {
         case Some(docTimestampDir) =>
@@ -363,11 +369,11 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
             }
             context.parent ! RemovedDocument(documentId)
           } else {
-            throw new IllegalStateException(s"Unable to remove for document id: $usableDocId at timestamp: $maybeTimestamp, path: $docTimestampDir")
+            throw new IllegalStateException(s"Unable to remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) at timestamp: $maybeTimestamp, path: $docTimestampDir")
           }
 
         case None =>
-          throw new IllegalStateException(s"Unable to find doc timestamp dir to remove for document id: $usableDocId at timestamp: $maybeTimestamp")
+          throw new IllegalStateException(s"Unable to find doc timestamp dir to remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) at timestamp: $maybeTimestamp")
       }
 
 
@@ -451,11 +457,16 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     getLatestTimestampDir(docDir, Some(timestamp))
   }
 
-  private def getDocDir(usableDocumentId: String) = indexDir.resolve(usableDocumentId)
+  private def getDocDir(documentDirName: String) = indexDir.resolve(documentDirName)
 
-  private def getTimestampDir(usableDocumentId: String, timestamp: Long) = getDocDir(usableDocumentId).resolve(timestamp.toString)
+  private def getTimestampDir(documentDirName: String, timestamp: Long) = getDocDir(documentDirName).resolve(timestamp.toString)
 
-  private def usableDocumentId(userSpecifiedDocumentId: Option[String], documentId: Int): String = userSpecifiedDocumentId.getOrElse(documentId.toString)
+  /**
+    * Gets a documnet id
+    */
+  private def filenameUsableDocumentId(userSpecifiedDocumentId: Option[String], documentId: Int): String = userSpecifiedDocumentId.map(base32Encode)getOrElse(documentId.toString)
+
+  private def filenameUsableNodeId(userSpecifiedNodeId: Option[String], nodeId: Option[String]) = userSpecifiedNodeId.map(base32Encode).getOrElse(nodeId.getOrElse(DOCUMENT_NODE_ID))
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
     managed(new StringWriter).map { writer =>
@@ -480,6 +491,8 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       .disjunction
   }
 
+  private def base32Encode(plain: String): String = {
+    val base32 = new Base32()
+    base32.encodeAsString(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+  }
 }
-
-
