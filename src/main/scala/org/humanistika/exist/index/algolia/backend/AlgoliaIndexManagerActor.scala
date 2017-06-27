@@ -18,10 +18,10 @@
 package org.humanistika.exist.index.algolia.backend
 
 import akka.actor.{Actor, ActorRef, Props}
+import akka.pattern.pipe
 import com.algolia.search.{APIClient, ApacheAPIClientBuilder, Index}
-import org.humanistika.exist.index.algolia.readObjectId
+import org.humanistika.exist.index.algolia.{DocumentId, IndexName, IndexableRootObject, LocalIndexableRootObject, UserSpecifiedDocumentId, readObjectId}
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
-import org.humanistika.exist.index.algolia.{IndexName, IndexableRootObject, LocalIndexableRootObject}
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import AlgoliaIndexActor._
 import IncrementalIndexingManagerActor.{DropIndexes, IndexChanges, RemoveForCollection, RemoveForDocument}
@@ -33,6 +33,8 @@ import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.
 
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
+import scala.concurrent.Future
+import scala.util.{Failure, Success, Try}
 
 object AlgoliaIndexManagerActor {
   val ACTOR_NAME = "AlgoliaIndexManager"
@@ -137,10 +139,21 @@ class AlgoliaIndexManagerActor extends Actor {
 object AlgoliaIndexActor {
   case object DropIndex
   case class DroppedIndex(indexName: IndexName)
+
+  // responses to self regarding Algolia operations (in futures)
+  type BatchLogMsgGroupId = Long
+  case class AlgoliaBatchChangesResponse(documentId: DocumentId, batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
+  case class AlgoliaDeleteDocumentResponse(documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
+  case class AlgoliaDeleteCollectionResponse(collectionPath: String, batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
+  case class AlgoliaDeleteIndexResponse(batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
+
   private lazy val mapper = new ObjectMapper
 }
 
 class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootObject]) extends Actor {
+
+  import context.dispatcher
+
   private val logger = Logger(classOf[AlgoliaIndexActor])
 
   override def receive: Receive = {
@@ -149,35 +162,136 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
       if(logger.isTraceEnabled) {
         logChanges(changes)
       }
+
       val batchOperations =
         additions.map(new BatchAddObjectOperation[LocalIndexableRootObject](_)) ++
           updates.map(new BatchUpdateObjectOperation[LocalIndexableRootObject](_)) ++
           removals.map(new BatchDeleteObjectOperation(_))
-      algoliaIndex.batch(batchOperations.asJava).waitForCompletion()
+
+      val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
+
+      logger.info(s"Sending changes (msgId=$batchLogMsgGroupId) (" +
+          s"additions=${batchOperations.count(_.isInstanceOf[BatchAddObjectOperation[_]])} " +
+          s"updates=${batchOperations.count(_.isInstanceOf[BatchUpdateObjectOperation[_]])} " +
+          s"deletions=${batchOperations.count(_.isInstanceOf[BatchDeleteObjectOperation])})" +
+          s" to Algolia for documentId=${changes.documentId} in index: $indexName")
+
+      val batchUpload: Future[AlgoliaBatchChangesResponse] = Future {
+        // actually send the data to Algolia!
+        Try(algoliaIndex.batch(batchOperations.asJava).waitForCompletion()) match {
+          case Success(_) =>
+            AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, None)
+          case Failure(t) =>
+            AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
+        }
+      }.recover { case t: Throwable =>
+        AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
+      }
+
+      // redirect the response of the future back to ourselves
+      pipe(batchUpload).to(self)
+
+    case AlgoliaBatchChangesResponse(documentId, batchLogMsgGroupId, Some(t)) =>
+      logger.error(s"Unable to send changes (msgId=$batchLogMsgGroupId) for documentId=${documentId} in index: $indexName to Algolia", t)
+
+    case AlgoliaBatchChangesResponse(documentId, batchLogMsgGroupId, None) =>
+      logger.info(s"Sent changes (msgId=$batchLogMsgGroupId) for documentId=${documentId} in index: $indexName to Algolia")
+
+
 
     case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
-      if(logger.isTraceEnabled) {
-        logger.trace(s"Removing document (id=$documentId, userSpecificDocId=$userSpecifiedDocumentId) from index: $indexName")
+      val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
+
+      logger.info(s"Sending remove document (msgId=$batchLogMsgGroupId) to Algolia for documentId=$documentId, userSpecificDocId=$userSpecifiedDocumentId in index: $indexName")
+
+      val deleteDocumentQuery: Future[AlgoliaDeleteDocumentResponse] = Future {
+        // actually send the data to Algolia!
+        try {
+          val query = new Query()
+          query.setRestrictSearchableAttributes(List(DOCUMENT_ID_FIELD_NAME).asJava)
+          query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
+          algoliaIndex.deleteByQuery(query)
+          AlgoliaDeleteDocumentResponse(documentId, userSpecifiedDocumentId, batchLogMsgGroupId, None)
+        } catch {
+          case t: Throwable =>
+            AlgoliaDeleteDocumentResponse(documentId, userSpecifiedDocumentId, batchLogMsgGroupId, Some(t))
+        }
+      }.recover { case t: Throwable =>
+        AlgoliaDeleteDocumentResponse(documentId, userSpecifiedDocumentId, batchLogMsgGroupId, Some(t))
       }
-      val query = new Query()
-      query.setRestrictSearchableAttributes(List(DOCUMENT_ID_FIELD_NAME).asJava)
-      query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
-      algoliaIndex.deleteByQuery(query)
+
+      // redirect the response of the future back to ourselves
+      pipe(deleteDocumentQuery).to(self)
+
+    case AlgoliaDeleteDocumentResponse(documentId, userSpecifiedDocumentId, batchLogMsgGroupId, Some(t)) =>
+      logger.error(s"Unable to remove document (msgId=$batchLogMsgGroupId) for documentId=${documentId}, userSpecifiedDocumentId=$userSpecifiedDocumentId in index: $indexName from Algolia", t)
+
+    case AlgoliaDeleteDocumentResponse(documentId, userSpecifiedDocumentId, batchLogMsgGroupId, None) =>
+      logger.info(s"Sent remove document (msgId=$batchLogMsgGroupId) for documentId=${documentId}, userSpecifiedDocumentId=$userSpecifiedDocumentId in index: $indexName to Algolia")
+
+
 
     case RemoveForCollection(_, collectionPath) =>
-      if(logger.isTraceEnabled) {
-        logger.trace(s"Removing documents for Collection (path=$collectionPath) from index: $indexName")
+      val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
+
+      logger.info(s"Sending remove documents for Collection (msgId=$batchLogMsgGroupId) (path=$collectionPath) from index: $indexName to Algolia")
+
+      val deleteCollectionQuery: Future[AlgoliaDeleteCollectionResponse] = Future {
+        try {
+          val query = new Query()
+          query.setRestrictSearchableAttributes(List(COLLECTION_PATH_FIELD_NAME).asJava)
+          query.setQuery(collectionPath)
+          algoliaIndex.deleteByQuery(query)
+          AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, None)
+        } catch {
+          case t: Throwable =>
+            AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, Some(t))
+        }
+      }.recover {
+        case t: Throwable =>
+          AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, Some(t))
       }
-      val query = new Query()
-      query.setRestrictSearchableAttributes(List(COLLECTION_PATH_FIELD_NAME).asJava)
-      query.setQuery(collectionPath)
-      algoliaIndex.deleteByQuery(query)
+
+      // redirect the response of the future back to ourselves
+      pipe(deleteCollectionQuery).to(self)
+
+    case AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, Some(t)) =>
+      logger.error(s"Unable to remove documents for Collection (msgId=$batchLogMsgGroupId) (path=$collectionPath) in index: $indexName from Algolia", t)
+
+    case AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, None) =>
+      logger.info(s"Sent remove documents for Collection (msgId=$batchLogMsgGroupId) (path=$collectionPath) in index: $indexName to Algolia")
+
+
 
     case DropIndex =>
-      if(logger.isTraceEnabled) {
-        logger.trace(s"Removing index: $indexName")
+      val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
+
+      logger.info(s"Sending remove index (msgId=$batchLogMsgGroupId) for index: $indexName to Algolia")
+
+      val deleteIndex: Future[AlgoliaDeleteIndexResponse] = Future {
+        // actually send the data to Algolia!
+        Try(algoliaIndex.delete().waitForCompletion()) match {
+          case Success(_) =>
+            AlgoliaDeleteIndexResponse(batchLogMsgGroupId, None)
+          case Failure(t) =>
+            AlgoliaDeleteIndexResponse(batchLogMsgGroupId, Some(t))
+        }
+      }.recover {
+        case t: Throwable =>
+          AlgoliaDeleteIndexResponse(batchLogMsgGroupId, Some(t))
       }
-      algoliaIndex.delete().waitForCompletion()
+
+      // redirect the response of the future back to ourselves
+      pipe(deleteIndex).to(self)
+
+      sender ! DroppedIndex(indexName)
+
+    case AlgoliaDeleteIndexResponse(batchLogMsgGroupId, Some(t)) =>
+      logger.error(s"Unable to send remove index (msgId=$batchLogMsgGroupId) for index: $indexName to Algolia", t)
+      //context.stop(self)    // should we actually stop on error?
+
+    case AlgoliaDeleteIndexResponse(batchLogMsgGroupId, None) =>
+      logger.info(s"Sent remove index (msgId=$batchLogMsgGroupId) for index: $indexName to Algolia")
       sender ! DroppedIndex(indexName)
       context.stop(self)
   }
