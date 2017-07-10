@@ -23,7 +23,7 @@ import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import IndexableRootObjectJsonSerializer._
-import org.w3c.dom.Element
+import org.w3c.dom.{Element, NodeList, Text}
 import Serializer._
 import grizzled.slf4j.Logger
 
@@ -165,6 +165,32 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
       }
     }
 
+    /**
+      * Determines if a node-list only contains text nodes
+      */
+    def hasOnlyTextChildren(childNodes: NodeList): Boolean = {
+      val textNodes = for(i <- 0 until childNodes.getLength)
+        yield childNodes.item(i).isInstanceOf[Text]
+      !textNodes.contains(false)
+    }
+
+    def serializeTextNodes(textNodes: NodeList) {
+      if(textNodes.getLength > 1) {
+        gen.writeArrayFieldStart ("#text")
+      } else {
+        gen.writeFieldName("#text")
+      }
+
+      for(i <- 0 until textNodes.getLength) {
+        val textNode = textNodes.item(i).asInstanceOf[Text]
+        writeValueField(gen, LiteralTypeConfig.String, textNode.getNodeValue)
+      }
+
+      if(textNodes.getLength > 1) {
+        gen.writeEndArray()
+      }
+    }
+
     if(obj.values.size > 1) {
       gen.writeArrayFieldStart(obj.name)
 
@@ -173,9 +199,15 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
           gen.writeStartObject()
           gen.writeStringField("nodeId", id)
 
-          serialize(element)
+          val childNodes = element.getChildNodes
+          if(hasOnlyTextChildren(childNodes)) {
+            serializeTextNodes(childNodes)
+          } else {
+            serialize(element)
+          }
 
           gen.writeEndObject()
+
         case IndexableValue(_, \/-(attribute)) =>
           writeValueField(gen, LiteralTypeConfig.String, attribute._2)
       })
@@ -183,19 +215,27 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
       gen.writeEndArray()
 
     } else {
-      obj.values.map(_ match {
-        case IndexableValue(id, -\/(element)) =>
+      obj.values.headOption match {
+        case Some(IndexableValue(id, -\/(element))) =>
           gen.writeObjectFieldStart(obj.name)
           gen.writeStringField("nodeId", id)
 
-          serialize(element)
+
+          val childNodes = element.getChildNodes
+          if(hasOnlyTextChildren(childNodes)) {
+            serializeTextNodes(childNodes)
+          } else {
+            serialize(element)
+          }
 
           gen.writeEndObject()
 
-        case IndexableValue(_, \/-(attribute)) =>
+        case Some(IndexableValue(_, \/-(attribute))) =>
           //a org.w3c.dom.Attr can never be converted to an object, so just serialize the value as a String field
           writeKeyValueField(gen, LiteralTypeConfig.String)(obj.name, attribute._2)
-      })
+
+        case None =>
+      }
     }
   }
 

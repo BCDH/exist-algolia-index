@@ -280,7 +280,37 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       -\/(("tr",    Seq("1.5.2.2.12.9.3.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
+
+    "produce the correct actor messages for a object based index config with just text nodes in data" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-object-based-text-nodes"
+      val userSpecifiedDocId = "MZ.RGJS"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-text-nodes")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes/MZ.RGJS.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
+        \/-(("e-e",  Seq("4.6.2.2.4.7")))))
+      expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
+    }
   }
+
+
 
   type NameAndValueIds = (Name, Seq[String])
   type IndexableAttributeNameAndValueIds = NameAndValueIds
