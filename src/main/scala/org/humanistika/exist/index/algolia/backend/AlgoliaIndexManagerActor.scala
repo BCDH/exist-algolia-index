@@ -297,16 +297,18 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
   }
 
   private def logChanges(changes: Changes) {
-    for(addition <- changes.additions) {
-      logger.trace(s"Adding object(id=${readObjectId(addition.path, mapper)} path=${addition.path}) to index: $indexName")
-    }
+    if(logger.isTraceEnabled) {
+      for (addition <- changes.additions) {
+        logger.trace(s"Adding object(id=${readObjectId(addition.path, mapper)} path=${addition.path}) to index: $indexName")
+      }
 
-    for(update <- changes.updates) {
-      logger.trace(s"Updating object(id=${readObjectId(update.path, mapper)} path=${update.path}) to index: $indexName")
-    }
+      for (update <- changes.updates) {
+        logger.trace(s"Updating object(id=${readObjectId(update.path, mapper)} path=${update.path}) to index: $indexName")
+      }
 
-    for(removal <- changes.deletions) {
-      logger.trace(s"Removing object(id=${removal}) from index: $indexName")
+      for (removal <- changes.deletions) {
+        logger.trace(s"Removing object(id=${removal}) from index: $indexName")
+      }
     }
   }
 }
