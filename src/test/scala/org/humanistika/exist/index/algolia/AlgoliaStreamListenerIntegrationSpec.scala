@@ -58,25 +58,25 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
-          -\/(("dict",  Seq("1.5.2.2.4.1"))),
-          -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
-          -\/(("tr",    Seq("1.5.2.2.4.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.4.1"))),
+        -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.4.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
-          -\/(("dict",  Seq("1.5.2.2.6.1"))),
-          -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
-          -\/(("tr",    Seq("1.5.2.2.6.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.6.1"))),
+        -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.6.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.8"), None, Seq(
-          -\/(("dict",  Seq("1.5.2.2.8.1"))),
-          -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
-          -\/(("tr",    Seq("1.5.2.2.8.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.8.1"))),
+        -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.8.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.10"), None, Seq(
-          -\/(("dict",  Seq("1.5.2.2.10.1"))),
-          -\/(("lemma", Seq("1.5.2.2.10.3.3"))),
-          -\/(("tr",    Seq("1.5.2.2.10.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.10.1"))),
+        -\/(("lemma", Seq("1.5.2.2.10.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.10.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.12"), None, Seq(
-          -\/(("dict",  Seq("1.5.2.2.12.1"))),
-          -\/(("lemma", Seq("1.5.2.2.12.3.3"))),
-          -\/(("tr",    Seq("1.5.2.2.12.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.12.1"))),
+        -\/(("lemma", Seq("1.5.2.2.12.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.12.9.3.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
@@ -104,13 +104,13 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
-          -\/(("lemma", Seq(
-              "1.5.2.2.4.6.3",
-              "1.5.2.2.4.8.5",
-              "1.5.2.2.4.12.5")))))
+        -\/(("lemma", Seq(
+          "1.5.2.2.4.6.3",
+          "1.5.2.2.4.8.5",
+          "1.5.2.2.4.12.5")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
-          -\/(("lemma", Seq(
-              "1.5.2.2.6.6.3")))))
+        -\/(("lemma", Seq(
+          "1.5.2.2.6.6.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
@@ -138,23 +138,23 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.4.1"))),
+        -\/(("dict", Seq("1.5.2.2.4.1"))),
         -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.4.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.4.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.6.1"))),
+        -\/(("dict", Seq("1.5.2.2.6.1"))),
         -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.6.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.6.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.8"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.8.1"))),
+        -\/(("dict", Seq("1.5.2.2.8.1"))),
         -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.8.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.8.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.10"), None, Seq(
-        -\/(("dict",          Seq("1.5.2.2.10.1"))),
+        -\/(("dict", Seq("1.5.2.2.10.1"))),
         -\/(("inverse-lemma", Seq("1.5.2.2.10.3.3"))),
-        -\/(("tr",            Seq("1.5.2.2.10.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.10.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.12"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.12.1"))),
+        -\/(("dict", Seq("1.5.2.2.12.1"))),
         -\/(("lemma", Seq("1.5.2.2.12.3.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
@@ -182,8 +182,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
-          -\/(("trde", Seq("1.5.2.2.4.14.6.3", "1.5.2.2.4.16.6.3", "1.5.2.2.4.18.6.3", "1.5.2.2.4.18.8.3", "1.5.2.2.4.22.6.3", "1.5.2.2.4.24.8.3", "1.5.2.2.4.26.6.3"))),
-          -\/(("trla", Seq("1.5.2.2.4.14.8.3", "1.5.2.2.4.14.10.5", "1.5.2.2.4.16.8.3", "1.5.2.2.4.18.10.3", "1.5.2.2.4.18.12.3", "1.5.2.2.4.22.8.3", "1.5.2.2.4.24.10.3", "1.5.2.2.4.26.8.3")))))
+        -\/(("trde", Seq("1.5.2.2.4.14.6.3", "1.5.2.2.4.16.6.3", "1.5.2.2.4.18.6.3", "1.5.2.2.4.18.8.3", "1.5.2.2.4.22.6.3", "1.5.2.2.4.24.8.3", "1.5.2.2.4.26.6.3"))),
+        -\/(("trla", Seq("1.5.2.2.4.14.8.3", "1.5.2.2.4.14.10.5", "1.5.2.2.4.16.8.3", "1.5.2.2.4.18.10.3", "1.5.2.2.4.18.12.3", "1.5.2.2.4.22.8.3", "1.5.2.2.4.24.10.3", "1.5.2.2.4.26.8.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
@@ -212,25 +212,25 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.4"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.4.1"))),
+        -\/(("dict", Seq("1.5.2.2.4.1"))),
         -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.4.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.4.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.6"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.6.1"))),
+        -\/(("dict", Seq("1.5.2.2.6.1"))),
         -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.6.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.6.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.8"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.8.1"))),
+        -\/(("dict", Seq("1.5.2.2.8.1"))),
         -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.8.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.8.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.10"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.10.1"))),
+        -\/(("dict", Seq("1.5.2.2.10.1"))),
         -\/(("lemma", Seq("1.5.2.2.10.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.10.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.10.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.12"), None, Seq(
-        -\/(("dict",  Seq("1.5.2.2.12.1"))),
+        -\/(("dict", Seq("1.5.2.2.12.1"))),
         -\/(("lemma", Seq("1.5.2.2.12.3.3"))),
-        -\/(("tr",    Seq("1.5.2.2.12.9.3.3")))))
+        -\/(("tr", Seq("1.5.2.2.12.9.3.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
@@ -259,25 +259,25 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.4"), Some("VSK.SR.Adam"), Seq(
-      -\/(("dict",  Seq("1.5.2.2.4.1"))),
-      -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
-      -\/(("tr",    Seq("1.5.2.2.4.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.4.1"))),
+        -\/(("lemma", Seq("1.5.2.2.4.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.4.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.6"), Some("VSK.SR.Addam"), Seq(
-      -\/(("dict",  Seq("1.5.2.2.6.1"))),
-      -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
-      -\/(("tr",    Seq("1.5.2.2.6.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.6.1"))),
+        -\/(("lemma", Seq("1.5.2.2.6.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.6.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.8"), Some("VSK.SR.Adamm"), Seq(
-      -\/(("dict",  Seq("1.5.2.2.8.1"))),
-      -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
-      -\/(("tr",    Seq("1.5.2.2.8.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.8.1"))),
+        -\/(("lemma", Seq("1.5.2.2.8.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.8.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.10"), Some("VSK.SR.Adammm"), Seq(
-      -\/(("dict",  Seq("1.5.2.2.10.1"))),
-      -\/(("lemma", Seq("1.5.2.2.10.3.3"))),
-      -\/(("tr",    Seq("1.5.2.2.10.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.10.1"))),
+        -\/(("lemma", Seq("1.5.2.2.10.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.10.9.3.3")))))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.12"), Some("VSK.SR.Adammmm"), Seq(
-      -\/(("dict",  Seq("1.5.2.2.12.1"))),
-      -\/(("lemma", Seq("1.5.2.2.12.3.3"))),
-      -\/(("tr",    Seq("1.5.2.2.12.9.3.3")))))
+        -\/(("dict", Seq("1.5.2.2.12.1"))),
+        -\/(("lemma", Seq("1.5.2.2.12.3.3"))),
+        -\/(("tr", Seq("1.5.2.2.12.9.3.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
@@ -305,7 +305,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
-        \/-(("e-e",  Seq("4.6.2.2.4.7")))))
+        \/-(("e-e", Seq("4.6.2.2.4.7")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
@@ -333,7 +333,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
-        \/-(("e-e",  Seq("4.6.2.2.4.7")))))
+        \/-(("e-e", Seq("4.6.2.2.4.7")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
@@ -361,11 +361,40 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
       assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
-        \/-(("e-e",  Seq("4.6.2.2.4.7")))))
+        \/-(("e-e", Seq("4.6.2.2.4.7")))))
+      expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
+    }
+
+    "produce the correct actor messages for a attribute based index config with just text nodes in data" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-attribute-based-text-nodes"
+      val userSpecifiedDocId = "VSK.SR"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-attribute-based-text-nodes")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/attribute-based-text-nodes/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/attribute-based-text-nodes/VSK.SR.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("VSK.SR.џукела"), Seq(
+        -\/(("l", Seq("4.6.2.2.4.4.3"))),
+        -\/(("t-de", Seq("4.6.2.2.4.8.3.3"))),
+        -\/(("t-la", Seq("4.6.2.2.4.8.5.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
   }
-
 
 
   type NameAndValueIds = (Name, Seq[String])

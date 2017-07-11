@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?><?xml-stylesheet type="text/css" href="vuk.css"?><?xml-model href="tei_vuk.sch" type="application/xml" schematypens="http://purl.oclc.org/dsdl/schematron"?><?xml-model href="out/tei_vuk.rng" type="application/xml" schematypens="http://relaxng.org/ns/structure/1.0"?><TEI xmlns="http://www.tei-c.org/ns/1.0" xmlns:xi="http://www.w3.org/2001/XInclude" xml:id="VSK.SR" n="10">
+    <teiHeader>
+        <fileDesc>
+            <titleStmt>
+                <title>Title</title>
+            </titleStmt>
+            <publicationStmt>
+                <p>Publication Information</p>
+            </publicationStmt>
+            <sourceDesc>
+                <bibl>
+                    <date when="1818">1818, 1852</date>
+                </bibl>
+            </sourceDesc>
+        </fileDesc>
+    </teiHeader>
+    <text>
+        <body>
+            <div xml:id="VSK.SR.letter.А" xml:base="VSK.SR.letter.%D0%B0.xml">
+                <entryFree xml:id="VSK.SR.џукела" sortKey="џукела">
+                <form type="lemma">
+                    <orth norm="џукела">џу̀кела</orth>
+                </form>, <gramGrp>
+                <pos>f.</pos>
+            </gramGrp>
+                <sense xml:id="d1e1227095">
+                    <cit type="translation">
+                        <quote xml:lang="de">Schimpfwort auf einen Hund</quote>
+                    </cit>, <cit type="translation">
+                    <quote xml:lang="la">convicium in canem</quote>
+                </cit>. <xr type="cf">
+                    <lbl>cf.</lbl>
+                    <ref target="#VSK.SR.калаштура">
+                        <rs type="lemma">калаштура</rs>
+                    </ref>
+                </xr>. </sense>
+            </entryFree>
+            </div>
+        </body>
+    </text>
+</TEI>
