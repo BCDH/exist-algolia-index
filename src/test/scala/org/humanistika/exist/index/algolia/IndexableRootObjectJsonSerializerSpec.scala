@@ -54,6 +54,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
       write nested array $e25
       support arrays $e26
       be valid when only child text nodes are provided $e27
+      be valid when only attribues are provided $e28
+      be valid when only child text nodes and attribues are provided $e29
 
   """
 
@@ -272,6 +274,28 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual
       """{"objectID":"6/53/1","collection":"/db/a1","documentID":53,"obj1":{"nodeId":"1.1","#text":"hello"}}""".stripMargin
+  }
+
+  def e28 = {
+    val dom1 = dom("""<parts><w><x type="something"/></w></parts>""")
+    val ww = elems(dom1, "x")
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", -\/(ww(0)))
+    ), Map.empty, Map.empty)))
+    val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
+    serializeJson(indexableRootObject) mustEqual
+      """{"objectID":"6/53/1","collection":"/db/a1","documentID":53,"obj1":{"nodeId":"1.1","type":"something"}}""".stripMargin
+  }
+
+  def e29 = {
+    val dom1 = dom("""<parts><w><x type="something">hello</x></w></parts>""")
+    val ww = elems(dom1, "x")
+    val objects = Seq(\/-(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", -\/(ww(0)))
+    ), Map.empty, Map.empty)))
+    val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
+    serializeJson(indexableRootObject) mustEqual
+      """{"objectID":"6/53/1","collection":"/db/a1","documentID":53,"obj1":{"nodeId":"1.1","type":"something","#text":"hello"}}""".stripMargin
   }
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {

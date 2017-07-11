@@ -23,7 +23,7 @@ import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import IndexableRootObjectJsonSerializer._
-import org.w3c.dom.{Element, NodeList, Text}
+import org.w3c.dom._
 import Serializer._
 import grizzled.slf4j.Logger
 
@@ -174,6 +174,13 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
       !textNodes.contains(false)
     }
 
+    def serializeAttributes(map: NamedNodeMap) = {
+      for (i <- 0 until map.getLength) {
+        val attr = map.item(i).asInstanceOf[Attr]
+        gen.writeStringField(attr.getName, attr.getValue)
+      }
+    }
+
     def serializeTextNodes(textNodes: NodeList) {
       if(textNodes.getLength > 1) {
         gen.writeArrayFieldStart ("#text")
@@ -201,7 +208,12 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
           val childNodes = element.getChildNodes
           if(hasOnlyTextChildren(childNodes)) {
-            serializeTextNodes(childNodes)
+
+            serializeAttributes(element.getAttributes)
+
+            if(childNodes.getLength > 0) {
+              serializeTextNodes(childNodes)
+            }
           } else {
             serialize(element)
           }
@@ -223,7 +235,12 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
           val childNodes = element.getChildNodes
           if(hasOnlyTextChildren(childNodes)) {
-            serializeTextNodes(childNodes)
+
+            serializeAttributes(element.getAttributes)
+
+            if(childNodes.getLength > 0) {
+              serializeTextNodes(childNodes)
+            }
           } else {
             serialize(element)
           }

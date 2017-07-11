@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><?xml-stylesheet type="text/css" href="Zlatanovic.css"?><?xml-model href="../schemas/zlatanovic.sch" type="application/xml" schematypens="http://purl.oclc.org/dsdl/schematron"?><?xml-model href="http://www.tei-c.org/release/xml/tei/custom/schema/relaxng/tei_all.rng" type="application/xml" schematypens="http://relaxng.org/ns/structure/1.0"?><TEI xmlns="http://www.tei-c.org/ns/1.0" xmlns:xi="http://www.w3.org/2001/XInclude" xml:id="MZ.RGJS" n="30">
+   <teiHeader>
+      <fileDesc>
+         <titleStmt>
+            <title/>
+            <author>Пользователь Microsoft Office</author>
+         </titleStmt>
+         <editionStmt>
+            <edition>
+               <date>2016-07-20</date>
+            </edition>
+         </editionStmt>
+         <publicationStmt>
+           <p>not finished</p>
+         </publicationStmt>
+         <sourceDesc>
+            <bibl>
+               <date when="1998">1998</date>
+            </bibl>
+         </sourceDesc>
+      </fileDesc>
+      <encodingDesc>
+         <appInfo>
+            <application xml:id="docxtotei" ident="TEI_fromDOCX" version="2.15.0">
+               <label>DOCX to TEI</label>
+            </application>
+         </appInfo>
+      </encodingDesc>
+      <revisionDesc>
+         <listChange>
+            <change>
+               <date>2016-07-20T05:31:57Z</date>
+               <name>Пользователь Microsoft Office</name>
+            </change>
+         </listChange>
+      </revisionDesc>
+   </teiHeader>
+   <text>
+      <body>
+         <div xml:id="MZ.RGJS.letter.А" xml:base="MZ.RGJS.letter.%D0%90.xml">
+            <entryFree xml:id="MZ.RGJS.наводаџија">
+               <form type="lemma">
+                  <orth norm="наводаџија">наводаџи́ја</orth>
+               </form>
+               <gramGrp>
+                  <pos>м</pos>
+               </gramGrp>
+               <etym type="something">(наша реч с тур. суф. -ci)</etym>
+               <sense>
+                  <def>посредник за склапање брака.</def>
+                  <cit type="example">
+                     <quote>„Поначи́ни се ма́лко, ће́рко, поче́ше да доо́див наводаџи́је”</quote>
+                     <bibl>(<rs type="geo" nymRef="Собина" key="3187">Собина</rs>).</bibl>
+                  </cit>
+               </sense>
+            </entryFree>
+         </div>
+      </body>
+   </text>
+</TEI>
