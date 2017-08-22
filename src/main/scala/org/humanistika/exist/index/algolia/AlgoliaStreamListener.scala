@@ -17,6 +17,7 @@
 
 package org.humanistika.exist.index.algolia
 
+import java.io.StringWriter
 import java.util.{ArrayDeque, Deque, HashMap => JHashMap, Map => JMap, Properties => JProperties}
 import javax.xml.namespace.QName
 
@@ -30,11 +31,16 @@ import org.exist_db.collection_config._1.{Algolia, LiteralType, Properties, Root
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
 import akka.actor.ActorRef
+import com.fasterxml.jackson.core.{JsonFactory, JsonGenerator}
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
 import org.exist.numbering.DLN
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
+import org.w3c.dom._
+import JsonUtil.writeValueField
+import org.exist.util.serializer.SAXSerializer
+import resource.{makeManagedResource, managed}
 
 import scala.collection.JavaConverters._
 import scalaz._
@@ -615,7 +621,161 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       updatedExistingChildren ++ nonExistingNewChildren
     }
 
-    def toInMemory(node: ElementOrAttributeImpl): org.exist.dom.memtree.ElementImpl \/ AttributeKV = node.bimap(_.toInMemory(broker), attr => (asQName(ns.asScala.toMap, Option(attr.getNamespaceURI), attr.getLocalName, Option(attr.getPrefix)), attr.getValue))
+//    def serializeElementForAttribute(element: ElementImpl) : String = {
+//      serializeAsText(element) match {
+//        case -\/(ts) =>
+//          logger.error("Unable to serialize element: " + element.getNodeId.toString, ts)
+//          throw ts.head
+//
+//        case \/-(string) =>
+//          string
+//      }
+//    }
+
+//    def serializeElementForObject(objName: String, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])(element: ElementImpl) : String = {
+//
+//      def serialize(gen: JsonGenerator)(element: Element) = {
+//        val json = serializeAsJson(element, serializerProperties, typeMappings)
+//        val jsonBody = json.map(jsonObjectAsObjectBody(_))
+//
+//        jsonBody match {
+//          case \/-(rawJson) =>
+//            gen.writeRaw (',')
+//            gen.writeRaw (rawJson)
+//
+//          case -\/(ts) =>
+//            logger.error(s"Unable to serialize IndexableObject: ${objName}", ts)
+//        }
+//      }
+//
+//      def jsonObjectAsObjectBody(json: String): String = {
+//        var tmp: String = json
+//        if(tmp.startsWith("{ ")) {
+//          tmp = tmp.substring(2)
+//        } else if(tmp.startsWith("{")) {
+//          tmp = tmp.substring(1)
+//        }
+//
+//        if(tmp.endsWith(" }")) {
+//          tmp = tmp.substring(0, tmp.length - 2)
+//        } else if(tmp.endsWith("}")) {
+//          tmp = tmp.substring(0, tmp.length - 1)
+//        }
+//
+//        //replace all whitespace that is not between quotes
+//        tmp = tmp.replaceAll("""\s+(?=([^"]*"[^"]*")*[^"]*$)""", "")    //TODO(AR) this is only needed until JSONWriter in exist adheres to indent=no
+//
+//        tmp
+//      }
+//
+//      /**
+//        * Determines if a node-list only contains text nodes
+//        */
+//      def hasOnlyTextChildren(childNodes: NodeList): Boolean = {
+//        val textNodes = for(i <- 0 until childNodes.getLength)
+//          yield childNodes.item(i).isInstanceOf[Text]
+//        !textNodes.contains(false)
+//      }
+//
+//      def serializeAttributes(gen: JsonGenerator)(map: NamedNodeMap) = {
+//        for (i <- 0 until map.getLength) {
+//          val attr = map.item(i).asInstanceOf[Attr]
+//          gen.writeStringField(attr.getName, attr.getValue)
+//        }
+//      }
+//
+//      def serializeTextNodes(gen: JsonGenerator)(textNodes: NodeList) {
+//        if(textNodes.getLength > 1) {
+//          gen.writeArrayFieldStart ("#text")
+//        } else {
+//          gen.writeFieldName("#text")
+//        }
+//
+//        for(i <- 0 until textNodes.getLength) {
+//          val textNode = textNodes.item(i).asInstanceOf[Text]
+//          writeValueField(gen, LiteralTypeConfig.String, textNode.getNodeValue)
+//        }
+//
+//        if(textNodes.getLength > 1) {
+//          gen.writeEndArray()
+//        }
+//      }
+//
+//      def stripStartObjectEndObject(str: String): String = {
+//        val clean = str.trim
+//        if(!clean.isEmpty) {
+//          val first = if(clean.startsWith("{")) {
+//            clean.replaceFirst("""\{""", "")
+//          } else {
+//            clean
+//          }
+//          val last = if(first.endsWith("}")) {
+//            first.substring(0, first.length - 1)
+//          } else {
+//            first
+//          }
+//          last.trim
+//        } else {
+//          str
+//        }
+//      }
+//
+//      managed(new StringWriter()).map { writer =>
+//        val gen = new JsonFactory().createGenerator(writer)
+//
+//        // needed so Jackson's JSON Generator won't complain
+//        gen.writeStartObject()
+//
+//        val childNodes = element.getChildNodes
+//        if (hasOnlyTextChildren(childNodes)) {
+//          serializeAttributes(gen)(element.getAttributes)
+//          if (childNodes.getLength > 0) {
+//            serializeTextNodes(gen)(childNodes)
+//          }
+//        } else {
+//          serialize(gen)(element)
+//        }
+//
+//        // needed so Jackson's JSON Generator won't complain
+//        gen.writeEndObject()
+//
+//        // strip the extras we added for the JSON generator
+//        stripStartObjectEndObject(writer.toString)
+//
+//      }.either.either.disjunction match {
+//        case -\/(ts) =>
+//          logger.error("Unable to serialize element: " + element.getNodeId.toString, ts)
+//          throw ts.head
+//
+//        case \/-(string) =>
+//          string
+//      }
+//    }
+
+    def toInMemory(node: ElementOrAttributeImpl, elemSerializer: ElementImpl => Seq[Throwable] \/ String): ElementOrAttributeKV = {
+      val serializationResult : \/[Seq[Throwable], ElementOrAttributeKV] = node match {
+        case -\/(element) =>
+            elemSerializer(element).map(elementContent =>
+              (
+                asQName(ns.asScala.toMap, Option(element.getNamespaceURI), element.getLocalName, Option(element.getPrefix)),
+                elementContent
+              ).left
+            )
+
+        case \/-(attribute) =>
+          (
+            asQName(ns.asScala.toMap, Option(attribute.getNamespaceURI), attribute.getLocalName, Option(attribute.getPrefix)),
+            attribute.getValue
+          ).right.right
+      }
+
+      serializationResult match {
+        case -\/(ts) =>
+            logger.error(s"""Unable to serialize ${foldNode(node, _.getClass.getSimpleName)}: ${foldNode(node, _.getNodeId).toString}""", ts)
+            throw ts.head
+        case \/-(kv) => kv
+      }
+    }
 
     def asNamedNode(node: ElementOrAttributeImpl) : NamedNode[_] = node.fold(_.asInstanceOf[NamedNode[ElementImpl]], _.asInstanceOf[NamedNode[AttrImpl]])
 
@@ -642,11 +802,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
       val attributesConfig = partialRootObject.config.getAttribute.asScala
           .filter(attrConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, fixXjcAttrOutput(attrConf.getPath))))
-      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), typeOrDefault(attrConfig.getType)))
+      val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node, serializeElementForAttribute))), typeOrDefault(attrConfig.getType)))
 
       val objectsConfig = partialRootObject.config.getObject.asScala
         .filter(objConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, objConf.getPath)))
-      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node))), toScalaProperties(Option(objectConfig.getSerializer).flatMap(s => Option(s.getProperties))), getObjectMappings(objectConfig)))
+      val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node, serializeElementForObject(objectConfig.getName, toScalaProperties(Option(objectConfig.getSerializer).flatMap(s => Option(s.getProperties))), getObjectMappings(objectConfig)))))))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
         val newChildren : Seq[IndexableAttribute \/ IndexableObject] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.right) ++ attributes.map(_.left))

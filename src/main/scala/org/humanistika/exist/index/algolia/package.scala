@@ -37,8 +37,9 @@ package object algolia {
 
   type ElementOrAttributeImpl = ElementImpl \/ AttrImpl
   type ElementOrAttribute = Element \/ Attr
+  type ElementKV = (QName, String)  // qname and serialized XML as JSON
   type AttributeKV = (QName, String)  // substitute for org.exist.dom.memtree.AttrImpl as we have has trouble converting from org.exist.dom.persistent.AttrImpl
-  type ElementOrAttributeKV = Element \/ AttributeKV
+  type ElementOrAttributeKV = ElementKV \/ AttributeKV
 
   type IndexableAttributeOrObject = IndexableAttribute \/ IndexableObject
 
@@ -57,7 +58,7 @@ package object algolia {
 
   @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[IndexableAttribute \/ IndexableObject])
   case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
-  case class IndexableObject(name: Name, values: IndexableValues, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])
+  case class IndexableObject(name: Name, values: IndexableValues)
 
   type IndexableValues = Seq[IndexableValue]
   case class IndexableValue(id: String, value: ElementOrAttributeKV)
