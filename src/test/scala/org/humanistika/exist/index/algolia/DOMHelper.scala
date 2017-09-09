@@ -7,6 +7,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.{Attr, Document, Element, Node}
 import resource.managed
 
+import scala.annotation.tailrec
 import scala.util.{Failure, Success}
 
 object DOMHelper {
@@ -37,6 +38,12 @@ object DOMHelper {
     }
   }
 
+  /**
+    * Find all sibling elements by name.
+    *
+    * Does not descend within the node, except
+    * for a document node which will be expanded to the document element.
+    */
   def elem(node: Node, name: String) : Element = {
     if(node.isInstanceOf[Element]) {
       val e = node.asInstanceOf[Element]
@@ -65,6 +72,9 @@ object DOMHelper {
       .headOption.getOrElse(null)
   }
 
+  /**
+    * Find all self-or-descendant elements by name.
+    */
   def elems(node: Node, name: String) : Seq[Element] = {
     if(node.isInstanceOf[Element]) {
       val e = node.asInstanceOf[Element]
@@ -86,5 +96,24 @@ object DOMHelper {
     }
 
     throw new IllegalArgumentException
+  }
+
+  @tailrec
+  def firstElem(node: Node, name: String) : Option[Element] = {
+    if(node.isInstanceOf[Element]) {
+      val e = node.asInstanceOf[Element]
+      if (Option(e.getLocalName).getOrElse(e.getNodeName) == name) {
+        return Some(e)
+      }
+    }
+
+    val next =
+      Option(node.getNextSibling)
+        .orElse(Option(node.getFirstChild))
+
+    next match {
+      case None => None
+      case Some(n) => firstElem(n, name)
+    }
   }
 }

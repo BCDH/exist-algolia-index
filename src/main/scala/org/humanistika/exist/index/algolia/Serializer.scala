@@ -133,6 +133,8 @@ object Serializer {
           // needed so Jackson's JSON Generator won't complain
           gen.writeStartObject()
 
+          gen.writeRaw(',')
+
           serializeAttributes(gen)(element.getAttributes)
           if (childNodes.getLength > 0) {
             serializeTextNodes(gen)(childNodes)
