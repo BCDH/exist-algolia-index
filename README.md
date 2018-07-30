@@ -6,7 +6,7 @@ eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](htt
 
 <figure><img class="img-responsive" src="https://i.imgur.com/yqIlRI0.png" width="100%"></figure>
 
-<span style="color:gray;font-size:80%;text-align:center">eXist Indexer for Algolia in action: an autocomplete-search on [raskovnik.org](http://raskovnik.org)</span>
+<p style="text-align:center; color:gray; font-size:80%">eXist Indexer for Algolia in action: autocomplete search on <a href="http://raskovnik.org">http://raskovnik.org</a> </p>
 
 ## Installation
 
