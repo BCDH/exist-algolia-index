@@ -38,9 +38,10 @@ It's probably a good idea to start with a clean database, which means a complete
 
 You can use the Algolia Dashboard to examine the index. Alternatively, you can also set up eXist to to log changes to our Algolia Index. See [instructions](#logging).
 
-<a name="collectionconf">
-### Configuration
-</a>
+<a name="collectionconf"/>
+
+## Configuration
+
 
 For a single collection in eXist, you can put data into one or more indexes in Algolia, just create an "index" element inside the "algolia" element for each index and give it the name of the Algolia index, if the index doesn't exist in Algolia it will be automatically created for you.
 
@@ -85,9 +86,10 @@ An `object` represents a JSON object, and this is where things become fun, we ba
 
 The `name` attribute that is available on the "attribute" and "object" elements allows you to set the name of the field in the JSON object of the Algolia index, this means that name names of your data fields can be different in Algolia to eXist if you wish.
 
-<a name="logging">
+<a name="logging"/>
+
 ## Enable logging in eXist (optional)
-</a>
+
 
 You can see what we are sending to Algolia by adding the following to your `$EXIST_HOME/log4j2.xml` file:
 
@@ -122,9 +124,9 @@ The log output will then appear in
 - when you backup eXist, you should now also
 make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that holds the local representation of what is on the remote Algolia Server. Support for adding locally stored Algolia indexes to the backup/restore procedure may be added in the future.
 
-<a name="building">
+<a name="building"/>
 ## Building from Source
-</a>
+
 
 ```bash
 $ git clone https://github.com/BCDH/exist-algolia-index.git
