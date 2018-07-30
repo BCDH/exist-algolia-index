@@ -4,7 +4,9 @@
 
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
 
-<figure><img class="img-responsive" src="https://i.imgur.com/yqIlRI0.png" width="100%"><figcaption  style="color:gray;font-size:80%; text-align:center">eXist Indexer for Algolia in action: an autocomplete-search on raskovnik.org </figcaption></figure>
+<figure><img class="img-responsive" src="https://i.imgur.com/yqIlRI0.png" width="100%"></figure>
+
+<span style="color:gray;font-size:80%;align:center">eXist Indexer for Algolia in action: an autocomplete-search on [raskovnik.org](http://raskovnik.org)</span>
 
 ## Installation
 
