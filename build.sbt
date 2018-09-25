@@ -24,7 +24,7 @@ libraryDependencies ++= {
 
   val scalazV = "7.2.26"
   val catsV = "1.0.0"
-  val existV = "20170908-SNAPSHOT"
+  val existV = "4.4.0"
   val algoliaV = "2.19.0"
   val akkaV = "2.5.16"
   val jacksonV = "2.9.7"
