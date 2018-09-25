@@ -3,17 +3,16 @@ package org.humanistika.exist.index.algolia
 import DOMHelper._
 import java.io.{ByteArrayInputStream, StringWriter}
 import java.nio.charset.StandardCharsets
+
 import javax.xml.namespace.QName
 import javax.xml.parsers.DocumentBuilderFactory
-
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.humanistika.exist.index.algolia.Serializer.{serializeElementForAttribute, serializeElementForObject}
 import org.specs2.Specification
 import org.w3c.dom.{Attr, Document, Element, Node}
-
 import scalaz._
 import Scalaz._
-import resource._
+import cats.effect.{IO, Resource}
 
 import scala.util.{Failure, Success}
 
@@ -323,14 +322,17 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   }
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
-    managed(new StringWriter).map { writer =>
-      val mapper = new ObjectMapper
-      mapper.writeValue(writer, indexableRootObject)
-      writer.toString
-    }.tried match {
-      case Success(s) =>
+    Resource.fromAutoCloseable(IO {new StringWriter()}).use { writer =>
+      IO {
+        val mapper = new ObjectMapper
+        mapper.writeValue(writer, indexableRootObject)
+        writer.toString
+      }
+    }.redeem(_.left, _.right)
+      .unsafeRunSync() match {
+      case \/-(s) =>
         s
-      case Failure(t) =>
+      case -\/(t) =>
         throw t
     }
   }

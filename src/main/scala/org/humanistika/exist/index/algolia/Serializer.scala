@@ -19,20 +19,19 @@ package org.humanistika.exist.index.algolia
 
 import java.io.StringWriter
 import java.util.Properties
+
 import javax.xml.transform.{OutputKeys, TransformerFactory}
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.sax.SAXResult
-
 import com.fasterxml.jackson.core.{JsonFactory, JsonGenerator}
 import org.exist.storage.NodePath
 import org.exist.util.serializer.{SAXSerializer, SerializerPool}
 import org.humanistika.exist.index.algolia.JsonUtil.writeValueField
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import org.w3c.dom.{Attr, Element, NamedNodeMap, Node, NodeList, Text}
-import resource._
-
-import scalaz._
-import Scalaz._
+import scalaz.{-\/, \/, \/-}
+import scalaz.syntax.either._
+import cats.effect.{IO, Resource}
 
 object Serializer {
 
@@ -124,39 +123,43 @@ object Serializer {
       }
     }
 
-    managed(new StringWriter()).map { writer =>
-      managed(new JsonFactory().createGenerator(writer)).map { gen =>
-
-        val childNodes = element.getChildNodes
-        if (hasOnlyTextChildren(childNodes)) {
-
-          // needed so Jackson's JSON Generator won't complain
-          gen.writeStartObject()
-
-          gen.writeRaw(',')
-
-          serializeAttributes(gen)(element.getAttributes)
-          if (childNodes.getLength > 0) {
-            serializeTextNodes(gen)(childNodes)
-          }
-
-          // needed so Jackson's JSON Generator won't complain
-          gen.writeEndObject()
-        } else {
-          serialize(element).map { elementGenerator =>
+    val jsonIO: IO[String] = Resource.fromAutoCloseable(IO { new StringWriter() }).use { writer =>
+      Resource.fromAutoCloseable(IO { new JsonFactory().createGenerator(writer) }).use { gen =>
+        IO {
+          val childNodes = element.getChildNodes
+          if (hasOnlyTextChildren(childNodes)) {
 
             // needed so Jackson's JSON Generator won't complain
             gen.writeStartObject()
 
-            elementGenerator(gen)
+            gen.writeRaw(',')
+
+            serializeAttributes(gen)(element.getAttributes)
+            if (childNodes.getLength > 0) {
+              serializeTextNodes(gen)(childNodes)
+            }
 
             // needed so Jackson's JSON Generator won't complain
             gen.writeEndObject()
+          } else {
+            serialize(element).map { elementGenerator =>
+
+              // needed so Jackson's JSON Generator won't complain
+              gen.writeStartObject()
+
+              elementGenerator(gen)
+
+              // needed so Jackson's JSON Generator won't complain
+              gen.writeEndObject()
+            }
           }
         }
-      }.either.either.disjunction
-        .map(_ => stripStartObjectEndObject(writer.toString))  // strip the extras we added for the JSON generator (so it won't complain)
-    }.either.either.disjunction.flatMap(identity)
+      }.map(_ => stripStartObjectEndObject(writer.toString))  // strip the extras we added for the JSON generator (so it won't complain)
+    }
+
+    jsonIO
+        .redeem(_.left.leftMap(Seq(_)), _.right)
+        .unsafeRunSync()
   }
 
   def serializeAsText(node: Node): Seq[Throwable] \/ String = {
@@ -201,15 +204,22 @@ object Serializer {
   }
 
   def serialize(node: Node, properties: Properties): Seq[Throwable] \/ String = {
-    makeManagedResource(serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer])(serializerPool.returnObject)(List(classOf[IllegalStateException], classOf[NoSuchElementException], classOf[Exception]))
-        .and(managed(new StringWriter())).map {
-      case (handler, writer) =>
-        handler.setOutput(writer, properties)
 
-        val transformer = transformerFactory.newTransformer()
-        val result = new SAXResult(handler)
-        transformer.transform(new DOMSource(node), result)
-        writer.toString
-    }.either.either.disjunction
+    val serializationIO = Resource.make(IO {serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer]})(serializer => IO {serializerPool.returnObject()}).use { serializer =>
+      Resource.fromAutoCloseable(IO {new StringWriter()}).use { writer =>
+        IO {
+            serializer.setOutput(writer, properties)
+
+            val transformer = transformerFactory.newTransformer()
+            val result = new SAXResult(serializer)
+            transformer.transform(new DOMSource(node), result)
+            writer.toString
+        }
+      }
+    }
+
+    serializationIO
+      .redeem(_.left.leftMap(Seq(_)), _.right)
+      .unsafeRunSync()
   }
 }

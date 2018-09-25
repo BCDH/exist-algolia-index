@@ -2,10 +2,12 @@ package org.humanistika.exist.index.algolia
 
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
-import javax.xml.parsers.DocumentBuilderFactory
 
+import cats.effect.{IO, Resource}
+import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.{Attr, Document, Element, Node}
-import resource.managed
+import scalaz.{-\/, \/, \/-}
+import scalaz.syntax.either._
 
 import scala.annotation.tailrec
 import scala.util.{Failure, Success}
@@ -16,12 +18,15 @@ object DOMHelper {
 
   def dom(xml: String) : Document = {
     val documentBuilder = documentBuilderFactory.newDocumentBuilder()
-    managed(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))).map { is =>
-      documentBuilder.parse(is)
-    }.tried match {
-      case Success(s) =>
+
+    Resource.fromAutoCloseable(IO {new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))}).use { is =>
+      IO {
+        documentBuilder.parse(is)
+      }
+    }.redeem(_.left, _.right).unsafeRunSync() match {
+      case \/-(s) =>
         s
-      case Failure(t) =>
+      case -\/(t) =>
         throw t
     }
   }

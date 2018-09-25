@@ -6,10 +6,12 @@ import java.nio.file.{Files, Path}
 import com.algolia.search.inputs.batch.BatchAddObjectOperation
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.specs2.Specification
-import resource.managed
 import java.nio.charset.StandardCharsets.UTF_8
 
-import scala.util.{Failure, Success}
+import cats.effect.{IO, Resource}
+
+import scalaz._
+import Scalaz._
 
 class LocalIndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"""
   This is a specification to check the JSON Serialization of IndexableRootObject
@@ -34,25 +36,29 @@ class LocalIndexableRootObjectJsonSerializerSpec extends Specification { def is 
 
   private def createTempJsonFile(json: String) : Path = {
     val p = Files.createTempFile("test", "json")
-    managed(Files.newBufferedWriter(p, UTF_8)).map { writer =>
-      writer.write(json)
-    }.tried match {
-      case Success(_) =>
+    Resource.fromAutoCloseable(IO {Files.newBufferedWriter(p, UTF_8)}).use { writer =>
+      IO {
+        writer.write(json)
+      }
+    }.redeem(_.left, _.right).unsafeRunSync() match {
+      case \/-(_) =>
         p
-      case Failure(t) =>
+      case -\/(t) =>
         throw t
     }
   }
 
   private def serializeJson[T](obj: T): String = {
-    managed(new StringWriter).map { writer =>
-      val mapper = new ObjectMapper
-      mapper.writeValue(writer, obj)
-      writer.toString
-    }.tried match {
-      case Success(s) =>
+    Resource.fromAutoCloseable(IO {new StringWriter}).use { writer =>
+      IO {
+        val mapper = new ObjectMapper
+        mapper.writeValue(writer, obj)
+        writer.toString
+      }
+    }.redeem(_.left, _.right).unsafeRunSync() match {
+      case \/-(s) =>
         s
-      case Failure(t) =>
+      case -\/(t) =>
         throw t
     }
   }

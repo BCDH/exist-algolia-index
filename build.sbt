@@ -10,7 +10,7 @@ licenses := Seq("GNU General Public License, version 3" -> url("http://opensourc
 homepage := Some(url("https://github.com/bcdh/exist-algolia-index"))
 
 
-scalaVersion := "2.12.3"
+scalaVersion := "2.12.6"
 
 
 import de.heikoseeberger.sbtheader.license.GPLv3
@@ -22,33 +22,27 @@ headers := Map(
 
 libraryDependencies ++= {
 
-  val scalazV = "7.2.15"
-  val fs2V = "0.10.0-M6"
-  val catsV = "0.4"
+  val scalazV = "7.2.26"
+  val catsV = "1.0.0"
   val existV = "20170908-SNAPSHOT"
-  val algoliaV = "2.12.0"
-  val akkaV = "2.5.4"
-  val jacksonV = "2.9.1"
-
-  // TODO(AR) move from scala-arm to cats effect IO
+  val algoliaV = "2.19.0"
+  val akkaV = "2.5.16"
+  val jacksonV = "2.9.7"
 
   Seq(
-    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.6",
-    "org.scala-lang.modules" %% "scala-java8-compat" % "0.8.0",
+    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.1",
+    "org.scala-lang.modules" %% "scala-java8-compat" % "0.9.0",
     "org.scalaz" %% "scalaz-core" % scalazV,
-    "com.jsuereth" %% "scala-arm" % "2.0",
     "org.typelevel" %% "cats-effect" % catsV,
-    "co.fs2" %% "fs2-io" % fs2V,
-    "co.fs2" %% "fs2-core" % fs2V,
 
-    "org.clapper" %% "grizzled-slf4j" % "1.3.1"
+    "org.clapper" %% "grizzled-slf4j" % "1.3.2"
       exclude("org.slf4j", "slf4j-api"),
 
     "org.exist-db" % "exist-core" % existV % Provided
       exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
     "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % Provided,
     "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
-    "commons-codec" %	"commons-codec"	% "1.10" % Provided,
+    "commons-codec" %	"commons-codec"	% "1.11" % Provided,
 
     "com.fasterxml.jackson.core" % "jackson-databind" % jacksonV
       exclude("com.fasterxml.jackson.core", "jackson-core"),
@@ -64,10 +58,10 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-testkit" % akkaV,
 
     "org.specs2" %% "specs2-core" % "3.9.5" % Test,
-    "org.easymock" % "easymock" % "3.4" % Test,
+    "org.easymock" % "easymock" % "3.6" % Test,
 
     "org.exist-db" % "exist-start" % existV % Test,
-    "org.apache.httpcomponents" % "httpclient" % "4.5.3" % Test
+    "org.apache.httpcomponents" % "httpclient" % "4.5.6" % Test
   )
 }
 
