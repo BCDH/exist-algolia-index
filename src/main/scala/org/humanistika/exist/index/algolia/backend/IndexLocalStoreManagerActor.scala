@@ -39,7 +39,8 @@ import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
 import scalaz._
 import Scalaz._
-import fs2.{Task, io}
+import cats.effect.IO
+import fs2.{io, hash}
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
 
@@ -484,10 +485,11 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     val bufSize = 16384 //16KB
 
     io.file
-      .readAll[Task](file, bufSize)
-      .through(fs2.hash.md5)
+      .readAll[IO](file, bufSize)
+      .through(hash.md5)
       .runLog
-      .unsafeAttemptRun()
+      .attempt
+      .unsafeRunSync()
       .disjunction
   }
 

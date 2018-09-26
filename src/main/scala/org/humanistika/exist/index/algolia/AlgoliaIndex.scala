@@ -29,6 +29,7 @@ import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerAct
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.DropIndexes
 
 import scala.collection.JavaConverters._
+import scala.concurrent.Await
 
 object AlgoliaIndex {
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndex])
@@ -79,12 +80,19 @@ class AlgoliaIndex(_system: Option[ActorSystem] = None, _incrementalIndexingMana
   }
 
   override def close() {
-    system.foreach(_.shutdown())
+    system match {
+      case Some(sys) =>
+        import scala.concurrent.duration._
+        Await.ready(sys.terminate(), 2 minutes)
+        system = None // remember we have stopped!
+
+      case None =>
+    }
   }
 
   override def getWorker(broker: DBBroker): IndexWorker = {
     system match {
-      case Some(sys) if !sys.isTerminated =>
+      case Some(sys) =>
         incrementalIndexingManagerActor.map(new AlgoliaIndexWorker(this, broker, sys, _)).getOrElse(null)
       case _ =>
         null

@@ -23,10 +23,12 @@ import javax.xml.transform.{OutputKeys, TransformerFactory}
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.sax.SAXResult
 
+import com.fasterxml.jackson.core.{JsonFactory, JsonGenerator}
 import org.exist.storage.NodePath
 import org.exist.util.serializer.{SAXSerializer, SerializerPool}
+import org.humanistika.exist.index.algolia.JsonUtil.writeValueField
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
-import org.w3c.dom.{Element, Node}
+import org.w3c.dom.{Attr, Element, NamedNodeMap, Node, NodeList, Text}
 import resource._
 
 import scalaz._
@@ -36,6 +38,126 @@ object Serializer {
 
   private lazy val serializerPool = SerializerPool.getInstance
   private lazy val transformerFactory: TransformerFactory = new net.sf.saxon.TransformerFactoryImpl
+
+  def serializeElementForAttribute(element: Element) : Seq[Throwable] \/ String = serializeAsText(element)
+
+  def serializeElementForObject(objName: String, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])(element: Element) : Seq[Throwable] \/ String = {
+
+    def serialize(element: Element) : \/[Seq[Throwable], JsonGenerator => Unit] = {
+      serializeAsJson(element, serializerProperties, typeMappings)
+        .map(jsonObjectAsObjectBody(_))
+        .map(rawJson => { gen: JsonGenerator =>
+          gen.writeRaw(',')
+          gen.writeRaw(rawJson)
+        })
+    }
+
+    def jsonObjectAsObjectBody(json: String): String = {
+      var tmp: String = json
+      if(tmp.startsWith("{ ")) {
+        tmp = tmp.substring(2)
+      } else if(tmp.startsWith("{")) {
+        tmp = tmp.substring(1)
+      }
+
+      if(tmp.endsWith(" }")) {
+        tmp = tmp.substring(0, tmp.length - 2)
+      } else if(tmp.endsWith("}")) {
+        tmp = tmp.substring(0, tmp.length - 1)
+      }
+
+      //replace all whitespace that is not between quotes
+      tmp = tmp.replaceAll("""\s+(?=([^"]*"[^"]*")*[^"]*$)""", "")    //TODO(AR) this is only needed until JSONWriter in exist adheres to indent=no
+
+      tmp
+    }
+
+    /**
+      * Determines if a node-list only contains text nodes
+      */
+    def hasOnlyTextChildren(childNodes: NodeList): Boolean = {
+      val textNodes = for(i <- 0 until childNodes.getLength)
+        yield childNodes.item(i).isInstanceOf[Text]
+      !textNodes.contains(false)
+    }
+
+    def serializeAttributes(gen: JsonGenerator)(map: NamedNodeMap) = {
+      for (i <- 0 until map.getLength) {
+        val attr = map.item(i).asInstanceOf[Attr]
+        gen.writeStringField(attr.getName, attr.getValue)
+      }
+    }
+
+    def serializeTextNodes(gen: JsonGenerator)(textNodes: NodeList) {
+      if(textNodes.getLength > 1) {
+        gen.writeArrayFieldStart ("#text")
+      } else {
+        gen.writeFieldName("#text")
+      }
+
+      for(i <- 0 until textNodes.getLength) {
+        val textNode = textNodes.item(i).asInstanceOf[Text]
+        writeValueField(gen, LiteralTypeConfig.String, textNode.getNodeValue)
+      }
+
+      if(textNodes.getLength > 1) {
+        gen.writeEndArray()
+      }
+    }
+
+    def stripStartObjectEndObject(str: String): String = {
+      val clean = str.trim
+      if(!clean.isEmpty) {
+        val first = if(clean.startsWith("{")) {
+          clean.replaceFirst("""\{""", "")
+        } else {
+          clean
+        }
+        val last = if(first.endsWith("}")) {
+          first.substring(0, first.length - 1)
+        } else {
+          first
+        }
+        last.trim
+      } else {
+        str
+      }
+    }
+
+    managed(new StringWriter()).map { writer =>
+      managed(new JsonFactory().createGenerator(writer)).map { gen =>
+
+        val childNodes = element.getChildNodes
+        if (hasOnlyTextChildren(childNodes)) {
+
+          // needed so Jackson's JSON Generator won't complain
+          gen.writeStartObject()
+
+          gen.writeRaw(',')
+
+          serializeAttributes(gen)(element.getAttributes)
+          if (childNodes.getLength > 0) {
+            serializeTextNodes(gen)(childNodes)
+          }
+
+          // needed so Jackson's JSON Generator won't complain
+          gen.writeEndObject()
+        } else {
+          serialize(element).map { elementGenerator =>
+
+            // needed so Jackson's JSON Generator won't complain
+            gen.writeStartObject()
+
+            elementGenerator(gen)
+
+            // needed so Jackson's JSON Generator won't complain
+            gen.writeEndObject()
+          }
+        }
+      }.either.either.disjunction
+        .map(_ => stripStartObjectEndObject(writer.toString))  // strip the extras we added for the JSON generator (so it won't complain)
+    }.either.either.disjunction.flatMap(identity)
+  }
 
   def serializeAsText(node: Node): Seq[Throwable] \/ String = {
     val properties = new Properties()

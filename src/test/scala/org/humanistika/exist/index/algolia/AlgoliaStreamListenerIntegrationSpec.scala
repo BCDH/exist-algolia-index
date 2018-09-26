@@ -365,6 +365,34 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
+    "produce the correct actor messages for a object based index config with just mixed content nodes in data" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-object-based-mixed-content-nodes"
+      val userSpecifiedDocId = "mixed-content-etyms"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-mixed-content-nodes")
+
+      // register our index
+      implicit val brokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-mixed-content-nodes/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-mixed-content-nodes/mixed-content-etyms.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("3.5.2.2.4"), Some("VSK.SR.баба2"), Seq(
+        \/-(("e-e", Seq("3.5.2.2.4.8", "3.5.2.2.4.10", "3.5.2.2.4.12", "3.5.2.2.4.14")))))
+      expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
+    }
+
     "produce the correct actor messages for a attribute based index config with just text nodes in data" in new AkkaTestkitSpecs2Support {
 
       val indexName = "raskovnik-test-integration-attribute-based-text-nodes"
@@ -394,6 +422,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
         -\/(("t-la", Seq("4.6.2.2.4.8.5.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
+
   }
 
 

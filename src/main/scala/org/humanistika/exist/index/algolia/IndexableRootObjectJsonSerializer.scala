@@ -17,15 +17,11 @@
 
 package org.humanistika.exist.index.algolia
 
-import javax.xml.bind.DatatypeConverter
-
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.{JsonSerializer, SerializerProvider}
-import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import IndexableRootObjectJsonSerializer._
-import org.w3c.dom._
-import Serializer._
 import grizzled.slf4j.Logger
+import JsonUtil._
 
 import scalaz._
 import Scalaz._
@@ -53,10 +49,6 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
         gen.writeNumberField(DOCUMENT_ID_FIELD_NAME, value.documentId)
     }
 
-//    gen.writeNumberField("collId", value.collectionId)
-//    gen.writeNumberField("docId", value.documentId)
-//    value.nodeId.map(gen.writeStringField("nodeId", _))
-
     serializeChildren(value.children, gen, serializers)
 
     gen.writeEndObject()
@@ -76,7 +68,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
   private def serializeAttribute(attr: IndexableAttribute, gen: JsonGenerator, serializers: SerializerProvider) {
     val values: Seq[Throwable] \/ Seq[String] = attr.values.map( _ match {
       case IndexableValue(id, -\/(element)) =>
-        serializeAsText(element)
+        element._2.right
       case IndexableValue(id, \/-(attribute)) =>
         attribute._2.right
     }).foldLeft((Seq.empty[Throwable], Seq.empty[String])) { case (accum, lr) =>
@@ -109,94 +101,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
     }
   }
 
-  private def writeKeyValueField(gen: JsonGenerator, literalType: LiteralTypeConfig): (String, String) => Unit = {
-    (key, value) =>
-      literalType match {
-        case LiteralTypeConfig.Integer =>
-          gen.writeNumberField(key, value.toInt)
-        case LiteralTypeConfig.Float =>
-          gen.writeNumberField(key, value.toFloat)
-        case LiteralTypeConfig.Boolean =>
-          gen.writeBooleanField(key, value.toBoolean)
-        case LiteralTypeConfig.String =>
-          gen.writeStringField(key, value)
-        case LiteralTypeConfig.Date =>
-          gen.writeNumberField(key, DatatypeConverter.parseDate(value).getTimeInMillis)
-        case LiteralTypeConfig.DateTime =>
-          gen.writeNumberField(key, DatatypeConverter.parseDateTime(value).getTimeInMillis)
-      }
-  }
-
-  private def writeValueFields(gen: JsonGenerator, literalType: LiteralTypeConfig, values: Seq[String]) {
-    for(value <- values) {
-      writeValueField(gen, literalType, value)
-    }
-  }
-
-  private def writeValueField(gen: JsonGenerator, literalType: LiteralTypeConfig, value: String) {
-    literalType match {
-      case LiteralTypeConfig.Integer =>
-        gen.writeNumber(value.toInt)
-      case LiteralTypeConfig.Float =>
-        gen.writeNumber(value.toFloat)
-      case LiteralTypeConfig.Boolean =>
-        gen.writeBoolean(value.toBoolean)
-      case LiteralTypeConfig.String =>
-        gen.writeString(value)
-      case LiteralTypeConfig.Date =>
-        gen.writeNumber(DatatypeConverter.parseDate(value).getTimeInMillis)
-      case LiteralTypeConfig.DateTime =>
-        gen.writeNumber(DatatypeConverter.parseDateTime(value).getTimeInMillis)
-    }
-  }
-
   private def serializeObject(obj: IndexableObject, gen: JsonGenerator, serializers: SerializerProvider) {
-    def serialize(element: Element) = {
-      val json = serializeAsJson(element, obj.serializerProperties, obj.typeMappings)
-      val jsonBody = json.map(jsonObjectAsObjectBody(_))
-
-      jsonBody match {
-        case \/-(rawJson) =>
-          gen.writeRaw (',')
-          gen.writeRaw (rawJson)
-
-        case -\/(ts) =>
-          logger.error(s"Unable to serialize IndexableObject: ${obj.name}", ts)
-      }
-    }
-
-    /**
-      * Determines if a node-list only contains text nodes
-      */
-    def hasOnlyTextChildren(childNodes: NodeList): Boolean = {
-      val textNodes = for(i <- 0 until childNodes.getLength)
-        yield childNodes.item(i).isInstanceOf[Text]
-      !textNodes.contains(false)
-    }
-
-    def serializeAttributes(map: NamedNodeMap) = {
-      for (i <- 0 until map.getLength) {
-        val attr = map.item(i).asInstanceOf[Attr]
-        gen.writeStringField(attr.getName, attr.getValue)
-      }
-    }
-
-    def serializeTextNodes(textNodes: NodeList) {
-      if(textNodes.getLength > 1) {
-        gen.writeArrayFieldStart ("#text")
-      } else {
-        gen.writeFieldName("#text")
-      }
-
-      for(i <- 0 until textNodes.getLength) {
-        val textNode = textNodes.item(i).asInstanceOf[Text]
-        writeValueField(gen, LiteralTypeConfig.String, textNode.getNodeValue)
-      }
-
-      if(textNodes.getLength > 1) {
-        gen.writeEndArray()
-      }
-    }
 
     if(obj.values.size > 1) {
       gen.writeArrayFieldStart(obj.name)
@@ -206,17 +111,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
           gen.writeStartObject()
           gen.writeStringField("nodeId", id)
 
-          val childNodes = element.getChildNodes
-          if(hasOnlyTextChildren(childNodes)) {
-
-            serializeAttributes(element.getAttributes)
-
-            if(childNodes.getLength > 0) {
-              serializeTextNodes(childNodes)
-            }
-          } else {
-            serialize(element)
-          }
+          gen.writeRaw(element._2)
 
           gen.writeEndObject()
 
@@ -232,18 +127,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
           gen.writeObjectFieldStart(obj.name)
           gen.writeStringField("nodeId", id)
 
-
-          val childNodes = element.getChildNodes
-          if(hasOnlyTextChildren(childNodes)) {
-
-            serializeAttributes(element.getAttributes)
-
-            if(childNodes.getLength > 0) {
-              serializeTextNodes(childNodes)
-            }
-          } else {
-            serialize(element)
-          }
+          gen.writeRaw(element._2)
 
           gen.writeEndObject()
 
@@ -254,25 +138,5 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
         case None =>
       }
     }
-  }
-
-  private def jsonObjectAsObjectBody(json: String): String = {
-    var tmp: String = json
-    if(tmp.startsWith("{ ")) {
-      tmp = tmp.substring(2)
-    } else if(tmp.startsWith("{")) {
-      tmp = tmp.substring(1)
-    }
-
-    if(tmp.endsWith(" }")) {
-      tmp = tmp.substring(0, tmp.length - 2)
-    } else if(tmp.endsWith("}")) {
-      tmp = tmp.substring(0, tmp.length - 1)
-    }
-
-    //replace all whitespace that is not between quotes
-    tmp = tmp.replaceAll("""\s+(?=([^"]*"[^"]*")*[^"]*$)""", "")    //TODO(AR) this is only needed until JSONWriter in exist adheres to indent=no
-
-    tmp
   }
 }
