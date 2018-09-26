@@ -40,7 +40,6 @@ import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerAct
 import org.w3c.dom._
 import JsonUtil.writeValueField
 import org.exist.util.serializer.SAXSerializer
-import resource.{makeManagedResource, managed}
 
 import scala.collection.JavaConverters._
 import scalaz._

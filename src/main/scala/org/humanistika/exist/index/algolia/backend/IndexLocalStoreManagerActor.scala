@@ -32,15 +32,13 @@ import IncrementalIndexingManagerActor._
 import org.exist.util.FileUtils
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, OBJECT_ID_FIELD_NAME}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUFFIX
-import resource._
 
 import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
-import scalaz._
-import Scalaz._
-import cats.effect.IO
-import fs2.{io, hash}
+import scalaz.{-\/, \/, \/-}
+import scalaz.syntax.either._
+import cats.effect.{IO, Resource}
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
 
@@ -181,15 +179,22 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
           this.perDocumentActors = Map.empty
 
           // find the latest timestamp dir for each document id
-          val latestTimestampDirs: Seq[Path] = managed(Files.list(localIndexStoreDir)).map { indexDirStream =>
-            indexDirStream
-              .filter(Files.isDirectory(_))
-              .collect(Collectors.toList())
-              .asScala
-              .map(getLatestTimestampDir(_, None))
-          }.tried match {
-            case Success(timestampDirs) => timestampDirs.flatten
-            case Failure(t) => throw t //TODO(AR) better error messages
+          val fileIO = Resource.fromAutoCloseable(IO { Files.list(localIndexStoreDir)}).use { indexDirStream =>
+            IO {
+              indexDirStream
+                .filter(Files.isDirectory(_))
+                .collect(Collectors.toList())
+                .asScala
+                .map(getLatestTimestampDir(_, None))
+            }
+          }
+          val latestTimestampDirs: Seq[Path] = fileIO
+            .redeem(_.left, _.right)
+            .unsafeRunSync() match {
+            case \/-(timestampDirs) =>
+              timestampDirs.flatten
+            case -\/(t) =>
+              throw t //TODO(AR) better error messages
           }
 
           //delete any rootObjects from the latest timestamps which match the collection path tree
@@ -220,11 +225,19 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
   }
 
   private def isEmpty(dir: Path) : Boolean = {
-    managed(Files.list(dir)).map { stream =>
-      !stream.findFirst().isPresent
-    }.tried match {
-      case Success(result) => result
-      case Failure(t) => throw t //TODO(AR) better error messsages
+    val fileIO = Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
+      IO {
+        !stream.findFirst().isPresent
+      }
+    }
+
+    fileIO
+        .redeem(_.left, _.right)
+        .unsafeRunSync() match {
+      case \/-(result) =>
+        result
+      case -\/(t) =>
+        throw t //TODO(AR) better error messsages
     }
   }
 
@@ -240,17 +253,23 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       rootObjectCollectionPath.exists(_.startsWith(collectionPath))
     }
 
-    managed(Files.list(timestampDir)).map { timestampDirStream =>
-      timestampDirStream
-        .filter(Files.isRegularFile(_))
-        .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
-        .filter(matchesCollectionPathRoot)
-        .collect(Collectors.toList())
-        .asScala
-    }.tried match {
-      case Success(rootObjectsMatchingCollection) =>
+    val fileIO = Resource.fromAutoCloseable(IO { Files.list(timestampDir)}).use { timestampDirStream =>
+      IO {
+        timestampDirStream
+          .filter(Files.isRegularFile(_))
+          .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
+          .filter(matchesCollectionPathRoot)
+          .collect(Collectors.toList())
+          .asScala
+      }
+    }
+
+    fileIO
+      .redeem(_.left, _.right)
+      .unsafeRunSync() match {
+      case \/-(rootObjectsMatchingCollection) =>
         rootObjectsMatchingCollection
-      case Failure(t) => throw t //TODO(AR) better error messages
+      case -\/(t) => throw t //TODO(AR) better error messages
     }
   }
 
@@ -280,18 +299,25 @@ object IndexLocalStoreDocumentActor {
   def getLatestTimestampDir(dir: Path, lt: Option[Timestamp] = None): Option[Path] = {
     def timestampFromPath(p: Path): Timestamp = p.getFileName.toString.toLong
 
-    managed(Files.list(dir)).map{ stream =>
-      stream
-        .filter(Files.isDirectory(_))
-        .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
-        .collect(Collectors.toList()).asScala
-    }.tried match {
-      case Success(prevTimestamps) =>
+    val fileIO = Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
+      IO {
+        stream
+          .filter(Files.isDirectory(_))
+          .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
+          .collect(Collectors.toList()).asScala
+      }
+    }
+
+    fileIO
+      .redeem(_.left, _.right)
+      .unsafeRunSync() match {
+      case \/-(prevTimestamps) =>
         prevTimestamps
           .sortWith{ case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2)}
           .headOption
 
-      case Failure(t) => throw t //TODO(AR) better error reporting
+      case -\/(t) =>
+        throw t  //TODO(AR) better error reporting
     }
   }
 }
@@ -314,15 +340,17 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
 
       val nodeIdFilename = filenameUsableNodeId(indexableRootObject.userSpecifiedNodeId, indexableRootObject.nodeId)
       val file = dir.resolve(s"${nodeIdFilename}.$FILE_SUFFIX")
-      managed(Files.newBufferedWriter(file)).map{ writer =>
-        writer.write(serializeJson(indexableRootObject))
-      }.tried match {
-        case Success(_) =>
+
+      Resource.fromAutoCloseable(IO {Files.newBufferedWriter(file)}).use { writer =>
+        IO {
+          writer.write(serializeJson(indexableRootObject))
+        }
+      }.redeem(_.left, _.right).unsafeRunSync() match {
+        case \/-(_) =>
           if(logger.isTraceEnabled) {
             logger.trace(s"Stored JSON rootObject '${file}' for (collectionPath=${indexableRootObject.collectionPath}, docId=${indexableRootObject.documentId}, userSpecificDocId=${indexableRootObject.userSpecifiedDocumentId}, nodeId=${indexableRootObject.nodeId}, userSpecificNodeId=${indexableRootObject.userSpecifiedNodeId}): ${indexDir.getFileName}")
           }
-
-        case Failure(t) => throw t    //TODO(AR) do some better error handling
+        case -\/(t) => throw t    //TODO(AR) do some better error handling
       }
 
     case FindChanges(timestamp, userSpecifiedDocumentId, documentId) =>
@@ -445,11 +473,14 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   }
 
   private def listFiles(dir: Path) : Seq[Throwable] \/ Seq[Path] = {
-    managed(Files.list(dir)).map{ stream =>
-      stream
-        .filter(Files.isRegularFile(_))
-        .collect(Collectors.toList()).asScala
-    }.either.either.disjunction
+    Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
+      IO {
+        stream
+          .filter(Files.isRegularFile(_))
+          .collect(Collectors.toList()).asScala
+      }
+    }.redeem(_.left.leftMap(Seq(_)), _.right)
+      .unsafeRunSync()
   }
 
   private def findPreviousDir(timestampDir: Path): Option[Path] = {
@@ -470,28 +501,24 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   private def filenameUsableNodeId(userSpecifiedNodeId: Option[String], nodeId: Option[String]) = userSpecifiedNodeId.map(base32Encode).getOrElse(nodeId.getOrElse(DOCUMENT_NODE_ID))
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
-    managed(new StringWriter).map { writer =>
-      mapper.writeValue(writer, indexableRootObject)
-      writer.toString
-    }.tried match {
-      case Success(s) =>
-        s
-      case Failure(t) =>
+    val serializeIO = Resource.fromAutoCloseable(IO { new StringWriter()}).use { writer =>
+      IO {
+        mapper.writeValue(writer, indexableRootObject)
+        writer.toString
+      }
+    }
+
+    serializeIO
+      .redeem(_.left, _.right)
+      .unsafeRunSync() match {
+      case  \/-(result) =>
+        result
+      case -\/(t) =>
         throw t
     }
   }
 
-  private def checksum(file: Path): Throwable \/ Vector[Byte] = {
-    val bufSize = 16384 //16KB
-
-    io.file
-      .readAll[IO](file, bufSize)
-      .through(hash.md5)
-      .runLog
-      .attempt
-      .unsafeRunSync()
-      .disjunction
-  }
+  private def checksum(file: Path): Throwable \/ Array[Byte] = Checksum.checksum(file, Checksum.MD5)
 
   private def base32Encode(plain: String): String = {
     val base32 = new Base32()

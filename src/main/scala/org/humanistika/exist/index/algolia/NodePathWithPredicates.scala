@@ -8,8 +8,8 @@ import org.humanistika.exist.index.algolia.NodePathWithPredicates._
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.ComponentType.ComponentType
 
 import scala.util.parsing.combinator._
-import scalaz._
-import Scalaz._
+import scalaz.{-\/, \/, \/-}
+import scalaz.syntax.either._
 import scala.annotation.tailrec
 
 class NodePathWithPredicates(components: Seq[Component]) {

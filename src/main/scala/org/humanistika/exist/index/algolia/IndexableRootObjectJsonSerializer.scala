@@ -23,8 +23,8 @@ import IndexableRootObjectJsonSerializer._
 import grizzled.slf4j.Logger
 import JsonUtil._
 
-import scalaz._
-import Scalaz._
+import scalaz.{-\/, \/, \/-}
+import scalaz.syntax.either._
 
 object IndexableRootObjectJsonSerializer {
   val OBJECT_ID_FIELD_NAME = "objectID"
