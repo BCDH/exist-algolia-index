@@ -124,9 +124,8 @@ The log output will then appear in
 - when you backup eXist, you should now also
 make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that holds the local representation of what is on the remote Algolia Server. Support for adding locally stored Algolia indexes to the backup/restore procedure may be added in the future.
 
-<a name="building"/>
 ## Building from Source
-
+<a name="building"/>
 
 ```bash
 $ git clone https://github.com/BCDH/exist-algolia-index.git
