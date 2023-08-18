@@ -36,10 +36,9 @@ import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUF
 import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
-import scalaz.{-\/, \/, \/-}
-import scalaz.syntax.either._
 import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
+import cats.syntax.either._
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
 
@@ -190,11 +189,11 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
             }
           }
           val latestTimestampDirs: Seq[Path] = fileIO
-            .redeem(_.left, _.right)
+            .redeem(_.asLeft, _.asRight)
             .unsafeRunSync() match {
-            case \/-(timestampDirs) =>
+            case Right(timestampDirs) =>
               timestampDirs.flatten
-            case -\/(t) =>
+            case Left(t) =>
               throw t //TODO(AR) better error messages
           }
 
@@ -233,11 +232,11 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
     }
 
     fileIO
-        .redeem(_.left, _.right)
+        .redeem(_.asLeft, _.asRight)
         .unsafeRunSync() match {
-      case \/-(result) =>
+      case Right(result) =>
         result
-      case -\/(t) =>
+      case Left(t) =>
         throw t //TODO(AR) better error messsages
     }
   }
@@ -266,11 +265,11 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
     }
 
     fileIO
-      .redeem(_.left, _.right)
+      .redeem(_.asLeft, _.asRight)
       .unsafeRunSync() match {
-      case \/-(rootObjectsMatchingCollection) =>
+      case Right(rootObjectsMatchingCollection) =>
         rootObjectsMatchingCollection
-      case -\/(t) => throw t //TODO(AR) better error messages
+      case Left(t) => throw t //TODO(AR) better error messages
     }
   }
 
@@ -310,14 +309,14 @@ object IndexLocalStoreDocumentActor {
     }
 
     fileIO
-      .redeem(_.left, _.right)
+      .redeem(_.asLeft, _.asRight)
       .unsafeRunSync() match {
-      case \/-(prevTimestamps) =>
+      case Right(prevTimestamps) =>
         prevTimestamps
           .sortWith{ case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2)}
           .headOption
 
-      case -\/(t) =>
+      case Left(t) =>
         throw t  //TODO(AR) better error reporting
     }
   }
@@ -346,12 +345,12 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         IO {
           writer.write(serializeJson(indexableRootObject))
         }
-      }.redeem(_.left, _.right).unsafeRunSync() match {
-        case \/-(_) =>
+      }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
+        case Right(_) =>
           if(logger.isTraceEnabled) {
             logger.trace(s"Stored JSON rootObject '${file}' for (collectionPath=${indexableRootObject.collectionPath}, docId=${indexableRootObject.documentId}, userSpecificDocId=${indexableRootObject.userSpecifiedDocumentId}, nodeId=${indexableRootObject.nodeId}, userSpecificNodeId=${indexableRootObject.userSpecifiedNodeId}): ${indexDir.getFileName}")
           }
-        case -\/(t) => throw t    //TODO(AR) do some better error handling
+        case Left(t) => throw t    //TODO(AR) do some better error handling
       }
 
     case FindChanges(timestamp, userSpecifiedDocumentId, documentId) =>
@@ -363,25 +362,25 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         case Some(prev) =>
           // compares the previous version with this version and sends the changes
           diff(prev, dir) match {
-            case \/-((additions, updates, deletions)) if(additions.nonEmpty || updates.nonEmpty || deletions.nonEmpty) =>
+            case Right((additions, updates, deletions)) if(additions.nonEmpty || updates.nonEmpty || deletions.nonEmpty) =>
               sender ! Changes(documentId, additions, updates, deletions)
 
-            case \/-((additions, updates, deletions)) if(additions.isEmpty && updates.isEmpty && deletions.isEmpty) =>
+            case Right((additions, updates, deletions)) if(additions.isEmpty && updates.isEmpty && deletions.isEmpty) =>
               if(logger.isTraceEnabled) {
                 logger.trace(s"No changes found between: ${prev.toAbsolutePath.toString} and ${dir.toAbsolutePath.toString}")
               }
 
-            case -\/(ts) =>
+            case Left(ts) =>
               throw ts.head  //TODO(AR) do some better error handling
           }
 
         case None =>
           // no previous version, so everything is an addition
           listFiles(dir) match {
-            case \/-(uploadable) =>
+            case Right(uploadable) =>
               sender ! Changes(documentId, uploadable.map(LocalIndexableRootObject(_)), Seq.empty, Seq.empty)
 
-            case -\/(ts) =>
+            case Left(ts) =>
               throw ts.head  //TODO(AR) do some better error handling
           }
       }
@@ -423,18 +422,18 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
    *
    * 4) if a file exists in current but not prev, then it is an addition
    */
-  private def diff(prev: Path, current: Path) : Seq[Throwable] \/ (Seq[Addition], Seq[Update], Seq[Removal]) = {
+  private def diff(prev: Path, current: Path) : Either[Seq[Throwable], (Seq[Addition], Seq[Update], Seq[Removal])] = {
 
-    def removalsOrUpdates() : Seq[Throwable] \/ Seq[Removal \/ Update] = listFiles(prev).map(_.map(removalOrUpdate).flatten)
+    def removalsOrUpdates() : Either[Seq[Throwable], Seq[Either[Removal, Update]]] = listFiles(prev).map(_.map(removalOrUpdate).flatten)
 
-    def removalOrUpdate(prevFile: Path): Option[Removal \/ Update] = {
+    def removalOrUpdate(prevFile: Path): Option[Either[Removal, Update]] = {
       val currentFile = current.resolve(prevFile.getFileName)
       if(Files.exists(currentFile)) {
         val prevChecksum = checksum(prevFile)
         val currentChecksum = checksum(currentFile)
         if(prevChecksum != currentChecksum) {
           // update
-          Some(LocalIndexableRootObject(currentFile).right)
+          Some(LocalIndexableRootObject(currentFile).asRight)
         } else {
           // no change
           None
@@ -442,22 +441,22 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       } else {
         // removal
         val prevObjectId = readObjectId(prevFile, mapper)
-        prevObjectId.map(_.left)
+        prevObjectId.map(_.asLeft)
       }
     }
 
-    def additions(): Seq[Throwable] \/ Seq[Addition] = {
+    def additions(): Either[Seq[Throwable], Seq[Addition]] = {
       listFiles(current)
         .map(_.filter(currentFile => !Files.exists(prev.resolve(currentFile.getFileName))))
         .map(_.map(LocalIndexableRootObject(_)))
     }
 
-    def split[L, R](lrs: Seq[L \/ R]) : (Seq[L], Seq[R]) = {
+    def split[L, R](lrs: Seq[Either[L, R]]) : (Seq[L], Seq[R]) = {
       lrs.foldLeft((Seq.empty[L], Seq.empty[R])) { (leftsRights, lr) =>
         val (lefts, rights) = leftsRights
         lr match {
-          case -\/(l) => (lefts :+ l, rights)
-          case \/-(r) => (lefts, rights :+ r)
+          case Left(l) => (lefts :+ l, rights)
+          case Right(r) => (lefts, rights :+ r)
         }
       }
     }
@@ -473,14 +472,14 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       })
   }
 
-  private def listFiles(dir: Path) : Seq[Throwable] \/ Seq[Path] = {
+  private def listFiles(dir: Path) : Either[Seq[Throwable], Seq[Path]] = {
     Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
       IO {
         stream
           .filter(Files.isRegularFile(_))
           .collect(Collectors.toList()).asScala
       }
-    }.redeem(_.left.leftMap(Seq(_)), _.right)
+    }.redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
       .unsafeRunSync()
   }
 
@@ -510,16 +509,16 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     }
 
     serializeIO
-      .redeem(_.left, _.right)
+      .redeem(_.asLeft, _.asRight)
       .unsafeRunSync() match {
-      case  \/-(result) =>
+      case  Right(result) =>
         result
-      case -\/(t) =>
+      case Left(t) =>
         throw t
     }
   }
 
-  private def checksum(file: Path): Throwable \/ Array[Byte] = Checksum.checksum(file, Checksum.MD5)
+  private def checksum(file: Path): Either[Throwable, Array[Byte]] = Checksum.checksum(file, Checksum.MD5)
 
   private def base32Encode(plain: String): String = {
     val base32 = new Base32()

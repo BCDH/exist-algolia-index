@@ -8,9 +8,9 @@ import org.humanistika.exist.index.algolia.NodePathWithPredicates._
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.ComponentType.ComponentType
 
 import scala.util.parsing.combinator._
-import scalaz.{-\/, \/, \/-}
-import scalaz.syntax.either._
 import scala.annotation.tailrec
+
+import cats.syntax.either._
 
 class NodePathWithPredicates(components: Seq[Component]) {
   def size = components.size
@@ -66,9 +66,9 @@ object NodePathWithPredicates {
   @throws[IllegalArgumentException]
   def apply(namespaces: Map[String, String], path: String): NodePathWithPredicates = {
     NodePathWithPredicatesParser.parsePath(namespaces, path) match {
-      case \/-(result) =>
+      case Right(result) =>
         result
-      case -\/(errorMsg) =>
+      case Left(errorMsg) =>
         throw new IllegalArgumentException(errorMsg)
     }
   }
@@ -77,12 +77,12 @@ object NodePathWithPredicates {
 
 object NodePathWithPredicatesParser extends RegexParsers {
 
-  def parsePath(namespaces: Map[Prefix, NamespaceURI], nodePathString: String): String \/ NodePathWithPredicates = {
+  def parsePath(namespaces: Map[Prefix, NamespaceURI], nodePathString: String): Either[String, NodePathWithPredicates] = {
     parseAll(path(namespaces), nodePathString) match {
       case Success(result, _) =>
-        result.right
+        result.asRight
       case NoSuccess(msg, _) =>
-        msg.left
+        msg.asLeft
     }
   }
 

@@ -10,10 +10,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.humanistika.exist.index.algolia.Serializer.{serializeElementForAttribute, serializeElementForObject}
 import org.specs2.Specification
 import org.w3c.dom.{Attr, Document, Element, Node}
-import scalaz._
-import Scalaz._
 import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
+import cats.syntax.either._
 
 import scala.util.{Failure, Success}
 
@@ -83,28 +82,28 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
 
   def e5 = {
     val attr1_kv = new AttributeKV(new QName("value"), "hello")
-    val attributes = Seq(-\/(IndexableAttribute("attr1", Seq(IndexableValue("1.1", \/-(attr1_kv))), LiteralTypeConfig.String)))
+    val attributes = Seq(Left(IndexableAttribute("attr1", Seq(IndexableValue("1.1", Right(attr1_kv))), LiteralTypeConfig.String)))
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/48/1","collection":"/db/a1","documentID":48,"attr1":"hello"}"""
   }
 
   def e6 = {
     val attr1_kv = new AttributeKV(new QName("value"), "99.9")
-    val attributes = Seq(-\/(IndexableAttribute("attr1", Seq(IndexableValue("1.1", \/-(attr1_kv))), LiteralTypeConfig.Float)))
+    val attributes = Seq(Left(IndexableAttribute("attr1", Seq(IndexableValue("1.1", Right(attr1_kv))), LiteralTypeConfig.Float)))
     val indexableRootObject = IndexableRootObject("/db/a1", 2, 49, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"2/49/1","collection":"/db/a1","documentID":49,"attr1":99.9}"""
   }
 
   def e7 = {
     val attr1_kv = new AttributeKV(new QName("value"), "1012")
-    val attributes = Seq(-\/(IndexableAttribute("attr1", Seq(IndexableValue("1.1", \/-(attr1_kv))), LiteralTypeConfig.Integer)))
+    val attributes = Seq(Left(IndexableAttribute("attr1", Seq(IndexableValue("1.1", Right(attr1_kv))), LiteralTypeConfig.Integer)))
     val indexableRootObject = IndexableRootObject("/db/a1", 9, 50, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"9/50/1","collection":"/db/a1","documentID":50,"attr1":1012}"""
   }
 
   def e8 = {
     val attr1_kv = new AttributeKV(new QName("value"), "true")
-    val attributes = Seq(-\/(IndexableAttribute("attr1", Seq(IndexableValue("1.1", \/-(attr1_kv))), LiteralTypeConfig.Boolean)))
+    val attributes = Seq(Left(IndexableAttribute("attr1", Seq(IndexableValue("1.1", Right(attr1_kv))), LiteralTypeConfig.Boolean)))
     val indexableRootObject = IndexableRootObject("/db/a1", 3, 51, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"3/51/1","collection":"/db/a1","documentID":51,"attr1":true}"""
   }
@@ -112,7 +111,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e9 = {
     val attr1_kv = new AttributeKV(new QName("x"), "99.9")
     val attr2_kv = new AttributeKV(new QName("y"), "11.4")
-    val attributes = Seq(-\/(IndexableAttribute("attr1", Seq(IndexableValue("1.1", \/-(attr1_kv))), LiteralTypeConfig.Float)), -\/(IndexableAttribute("attr2", Seq(IndexableValue("1.2", \/-(attr2_kv))), LiteralTypeConfig.Float)))
+    val attributes = Seq(Left(IndexableAttribute("attr1", Seq(IndexableValue("1.1", Right(attr1_kv))), LiteralTypeConfig.Float)), Left(IndexableAttribute("attr2", Seq(IndexableValue("1.2", Right(attr2_kv))), LiteralTypeConfig.Float)))
     val indexableRootObject = IndexableRootObject("/db/a1", 3, 52, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"3/52/1","collection":"/db/a1","documentID":52,"attr1":99.9,"attr2":11.4}"""
   }
@@ -123,8 +122,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val attr2_1_kv = new AttributeKV(new QName("y"), "11.4")
     val attr2_2_kv = new AttributeKV(new QName("y"), "10.2")
     val attributes = Seq(
-      -\/(IndexableAttribute("xx", Seq(IndexableValue("1.1", \/-(attr1_1_kv)), IndexableValue("2.1", \/-(attr1_2_kv))), LiteralTypeConfig.Float)),
-      -\/(IndexableAttribute("yy", Seq(IndexableValue("1.2", \/-(attr2_1_kv)), IndexableValue("2.2", \/-(attr2_2_kv))), LiteralTypeConfig.Float))
+      Left(IndexableAttribute("xx", Seq(IndexableValue("1.1", Right(attr1_1_kv)), IndexableValue("2.1", Right(attr1_2_kv))), LiteralTypeConfig.Float)),
+      Left(IndexableAttribute("yy", Seq(IndexableValue("1.2", Right(attr2_1_kv)), IndexableValue("2.2", Right(attr2_2_kv))), LiteralTypeConfig.Float))
     )
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 42, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/42/1","collection":"/db/a1","documentID":42,"xx":[99.9,202.2],"yy":[11.4,10.2]}"""
@@ -132,28 +131,28 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
 
   def e11 = {
     val elem1_kv = new ElementKV(new QName("w"), "hello")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.String)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.String)))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/48/1","collection":"/db/a1","documentID":48,"elem1":"hello"}"""
   }
 
   def e12 = {
     val elem1_kv = new ElementKV(new QName("x"), "99.9")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.Float)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.Float)))
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/48/1","collection":"/db/a1","documentID":48,"elem1":99.9}"""
   }
 
   def e13 = {
     val elem1_kv = new ElementKV(new QName("y"), "1012")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.Integer)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.Integer)))
     val indexableRootObject = IndexableRootObject("/db/a1", 2, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"2/48/1","collection":"/db/a1","documentID":48,"elem1":1012}"""
   }
 
   def e14 = {
     val elem1_kv = new ElementKV(new QName("z"), "true")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.Boolean)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.Boolean)))
     val indexableRootObject = IndexableRootObject("/db/a1", 1, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"1/48/1","collection":"/db/a1","documentID":48,"elem1":true}"""
   }
@@ -161,14 +160,14 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e15 = {
     val elem1_kv = new ElementKV(new QName("x"), "99.9")
     val elem2_kv = new ElementKV(new QName("y"), "11.3")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.Float)), -\/(IndexableAttribute("elem2", Seq(IndexableValue("1.2", -\/(elem2_kv))), LiteralTypeConfig.Float)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.Float)), Left(IndexableAttribute("elem2", Seq(IndexableValue("1.2", Left(elem2_kv))), LiteralTypeConfig.Float)))
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/48/1","collection":"/db/a1","documentID":48,"elem1":99.9,"elem2":11.3}"""
   }
 
   def e16 = {
     val elem1_kv = new ElementKV(new QName("x"), "hello world")
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.String)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.String)))
     val indexableRootObject = IndexableRootObject("/db/a1", 23, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"23/48/1","collection":"/db/a1","documentID":48,"elem1":"hello world"}"""
   }
@@ -176,7 +175,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e17 = {
     val elem1 = elem(dom("""<x y="17">hello <b>world</b></x>"""), "x")
     val elem1_kv = new ElementKV(new QName("x"), serializeElementForAttribute(elem1).valueOr(ts => throw ts.head))
-    val attributes = Seq(-\/(IndexableAttribute("elem1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.String)))
+    val attributes = Seq(Left(IndexableAttribute("elem1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.String)))
     val indexableRootObject = IndexableRootObject("/db/a1", 23, 48, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"23/48/1","collection":"/db/a1","documentID":48,"elem1":"hello world"}"""
   }
@@ -189,8 +188,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val elem2_1_kv = new ElementKV(new QName("y"), serializeElementForAttribute(childElem(pos(0), "y")).valueOr(ts => throw ts.head))
     val elem2_2_kv = new ElementKV(new QName("y"), serializeElementForAttribute(childElem(pos(1), "y")).valueOr(ts => throw ts.head))
     val attributes = Seq(
-      -\/(IndexableAttribute("xx", Seq(IndexableValue("1.1", -\/(elem1_1_kv)), IndexableValue("2.1", -\/(elem1_2_kv))), LiteralTypeConfig.Float)),
-      -\/(IndexableAttribute("yy", Seq(IndexableValue("1.2", -\/(elem2_1_kv)), IndexableValue("2.2", -\/(elem2_2_kv))), LiteralTypeConfig.Float))
+      Left(IndexableAttribute("xx", Seq(IndexableValue("1.1", Left(elem1_1_kv)), IndexableValue("2.1", Left(elem1_2_kv))), LiteralTypeConfig.Float)),
+      Left(IndexableAttribute("yy", Seq(IndexableValue("1.2", Left(elem2_1_kv)), IndexableValue("2.2", Left(elem2_2_kv))), LiteralTypeConfig.Float))
     )
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 42, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/42/1","collection":"/db/a1","documentID":42,"xx":[123.4,456.12],"yy":[-17.45,15.67]}"""
@@ -204,8 +203,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val elem2_1_kv = new ElementKV(new QName("y"), serializeElementForAttribute(childElem(pos(0), "y")).valueOr(ts => throw ts.head))
     val elem2_2_kv = new ElementKV(new QName("y"), serializeElementForAttribute(childElem(pos(1), "y")).valueOr(ts => throw ts.head))
     val attributes = Seq(
-      -\/(IndexableAttribute("xx", Seq(IndexableValue("1.1", -\/(elem1_1_kv)), IndexableValue("2.1", -\/(elem1_2_kv))), LiteralTypeConfig.Float)),
-      -\/(IndexableAttribute("yy", Seq(IndexableValue("1.2", -\/(elem2_1_kv)), IndexableValue("2.2", -\/(elem2_2_kv))), LiteralTypeConfig.Float))
+      Left(IndexableAttribute("xx", Seq(IndexableValue("1.1", Left(elem1_1_kv)), IndexableValue("2.1", Left(elem1_2_kv))), LiteralTypeConfig.Float)),
+      Left(IndexableAttribute("yy", Seq(IndexableValue("1.2", Left(elem2_1_kv)), IndexableValue("2.2", Left(elem2_2_kv))), LiteralTypeConfig.Float))
     )
     val indexableRootObject = IndexableRootObject("/db/a1", 7, 42, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"7/42/1","collection":"/db/a1","documentID":42,"xx":[123.4,456.12],"yy":[-17.45,15.67]}"""
@@ -216,7 +215,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val elem1 = firstElem(dom1, "x").get
     val elem1_kv = new ElementKV(new QName("x"), serializeElementForAttribute(elem1).valueOr(ts => throw ts.head))
     val attributes = Seq(
-      -\/(IndexableAttribute("obj1", Seq(IndexableValue("1.1", -\/(elem1_kv))), LiteralTypeConfig.String))
+      Left(IndexableAttribute("obj1", Seq(IndexableValue("1.1", Left(elem1_kv))), LiteralTypeConfig.String))
     )
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, attributes)
     serializeJson(indexableRootObject) mustEqual
@@ -225,7 +224,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
 
   def e21 = {
     val attr1_kv = new AttributeKV(new QName("value"), "hello")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", \/-(attr1_kv))))))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(IndexableValue("1.1", Right(attr1_kv))))))
     val indexableRootObject = IndexableRootObject("/db/a1", 45, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"45/48/1","collection":"/db/a1","documentID":48,"obj1":"hello"}"""
   }
@@ -233,9 +232,9 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e22 = {
     val attr1_1_kv = new AttributeKV(new QName("value"), "hello")
     val attr1_2_kv = new AttributeKV(new QName("value"), "world")
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(
-      IndexableValue("1.1.1", \/-(attr1_1_kv)),
-      IndexableValue("1.2.1", \/-(attr1_2_kv))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(
+      IndexableValue("1.1.1", Right(attr1_1_kv)),
+      IndexableValue("1.2.1", Right(attr1_2_kv))
     ))))
     val indexableRootObject = IndexableRootObject("/db/a1", 46, 49, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"46/49/1","collection":"/db/a1","documentID":49,"obj1":["hello","world"]}"""
@@ -244,7 +243,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e23 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y></w>"""), "w")
     val elem1_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1_kv))))))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(IndexableValue("1.1", Left(elem1_kv))))))
     val indexableRootObject = IndexableRootObject("/db/a1", 5, 48, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"5/48/1","collection":"/db/a1","documentID":48,"obj1":{"nodeId":"1.1","x":"hello","y":"world"}}"""
   }
@@ -252,7 +251,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e24 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><z>world</z><zz>again</zz></y></w>"""), "w")
     val elem1_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1_kv))))))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(IndexableValue("1.1", Left(elem1_kv))))))
     val indexableRootObject = IndexableRootObject("/db/a1", 2, 49, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"2/49/1","collection":"/db/a1","documentID":49,"obj1":{"nodeId":"1.1","x":"hello","y":{"z":"world","zz":"again"}}}"""
   }
@@ -260,7 +259,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e25 = {
     val elem1 = elem(dom("""<w><x>hello</x><y>world</y><y>again</y></w>"""), "w")
     val elem1_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1_kv))))))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(IndexableValue("1.1", Left(elem1_kv))))))
     val indexableRootObject = IndexableRootObject("/db/a1", 3, 50, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"3/50/1","collection":"/db/a1","documentID":50,"obj1":{"nodeId":"1.1","x":"hello","y":["world","again"]}}"""
   }
@@ -268,7 +267,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   def e26 = {
     val elem1 = elem(dom("""<w><x>hello</x><y><yy>world</yy><yy>again</yy></y></w>"""), "w")
     val elem1_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(IndexableValue("1.1", -\/(elem1_kv))))))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(IndexableValue("1.1", Left(elem1_kv))))))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 51, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/51/1","collection":"/db/a1","documentID":51,"obj1":{"nodeId":"1.1","x":"hello","y":{"yy":["world","again"]}}}"""
   }
@@ -278,9 +277,9 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val ww = elems(dom1, "w")
     val elem1_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(ww(0)).valueOr(ts => throw ts.head))
     val elem2_kv = new ElementKV(new QName("w"), serializeElementForObject("obj1", Map.empty, Map.empty)(ww(1)).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(
-      IndexableValue("1.1", -\/(elem1_kv)),
-      IndexableValue("1.2", -\/(elem2_kv))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", Left(elem1_kv)),
+      IndexableValue("1.2", Left(elem2_kv))
     ))))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 52, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual """{"objectID":"6/52/1","collection":"/db/a1","documentID":52,"obj1":[{"nodeId":"1.1","x":"hello","y":{"yy":["world","again"]}},{"nodeId":"1.2","x":"goodbye","y":{"yy":["until","next time"]}}]}"""
@@ -290,8 +289,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val dom1 = dom("""<parts><w><x>hello</x></w></parts>""")
     val elem1 = firstElem(dom1, "x").get
     val elem1_kv = new ElementKV(new QName("x"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(
-      IndexableValue("1.1", -\/(elem1_kv))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", Left(elem1_kv))
     ))))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual
@@ -302,8 +301,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val dom1 = dom("""<parts><w><x type="something"/></w></parts>""")
     val elem1 = firstElem(dom1, "x").get
     val elem1_kv = new ElementKV(new QName("x"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem1).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(
-      IndexableValue("1.1", -\/(elem1_kv))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", Left(elem1_kv))
     ))))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual
@@ -314,8 +313,8 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
     val dom1 = dom("""<parts><w><x type="something">hello</x></w></parts>""")
     val elem = firstElem(dom1, "x").get
     val elem1_kv = new ElementKV(new QName("x"), serializeElementForObject("obj1", Map.empty, Map.empty)(elem).valueOr(ts => throw ts.head))
-    val objects = Seq(\/-(IndexableObject("obj1", Seq(
-      IndexableValue("1.1", -\/(elem1_kv))
+    val objects = Seq(Right(IndexableObject("obj1", Seq(
+      IndexableValue("1.1", Left(elem1_kv))
     ))))
     val indexableRootObject = IndexableRootObject("/db/a1", 6, 53, None, Some("1"), None, objects)
     serializeJson(indexableRootObject) mustEqual
@@ -329,11 +328,11 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
         mapper.writeValue(writer, indexableRootObject)
         writer.toString
       }
-    }.redeem(_.left, _.right)
+    }.redeem(_.asLeft, _.asRight)
       .unsafeRunSync() match {
-      case \/-(s) =>
+      case Right(s) =>
         s
-      case -\/(t) =>
+      case Left(t) =>
         throw t
     }
   }

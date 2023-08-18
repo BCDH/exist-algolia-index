@@ -29,21 +29,20 @@ import org.exist.util.serializer.{SAXSerializer, SerializerPool}
 import org.humanistika.exist.index.algolia.JsonUtil.writeValueField
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import org.w3c.dom.{Attr, Element, NamedNodeMap, Node, NodeList, Text}
-import scalaz.{-\/, \/, \/-}
-import scalaz.syntax.either._
 import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
+import cats.syntax.either._
 
 object Serializer {
 
   private lazy val serializerPool = SerializerPool.getInstance
   private lazy val transformerFactory: TransformerFactory = new net.sf.saxon.TransformerFactoryImpl
 
-  def serializeElementForAttribute(element: Element) : Seq[Throwable] \/ String = serializeAsText(element)
+  def serializeElementForAttribute(element: Element) : Either[Seq[Throwable], String] = serializeAsText(element)
 
-  def serializeElementForObject(objName: String, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])(element: Element) : Seq[Throwable] \/ String = {
+  def serializeElementForObject(objName: String, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])])(element: Element) : Either[Seq[Throwable], String] = {
 
-    def serialize(element: Element) : \/[Seq[Throwable], JsonGenerator => Unit] = {
+    def serialize(element: Element) : Either[Seq[Throwable], JsonGenerator => Unit] = {
       serializeAsJson(element, serializerProperties, typeMappings)
         .map(jsonObjectAsObjectBody(_))
         .map(rawJson => { gen: JsonGenerator =>
@@ -159,11 +158,11 @@ object Serializer {
     }
 
     jsonIO
-        .redeem(_.left.leftMap(Seq(_)), _.right)
+        .redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
         .unsafeRunSync()
   }
 
-  def serializeAsText(node: Node): Seq[Throwable] \/ String = {
+  def serializeAsText(node: Node): Either[Seq[Throwable], String] = {
     val properties = new Properties()
     properties.setProperty(OutputKeys.METHOD, "text")
 
@@ -171,21 +170,21 @@ object Serializer {
       // serialize the children of the element (avoids also serializing the attribute values)
 
       val children = node.getChildNodes
-      val text: Seq[Seq[Throwable] \/ String] = for(i <- (0 until children.getLength))
+      val text: Seq[Either[Seq[Throwable], String]] = for(i <- (0 until children.getLength))
         yield serialize(children.item(i), properties)
 
-      text.map(_.left.getOrElse(Seq.empty)).flatten match {
+      text.map(_.asLeft.getOrElse(Seq.empty)).flatten match {
         case errors: Seq[Throwable] if errors.nonEmpty =>
-          errors.left
+          errors.asLeft
         case _ =>
-          text.map(_.map(Some(_)).getOrElse(None)).flatten.mkString("").right
+          text.map(_.map(Some(_)).getOrElse(None)).flatten.mkString("").asRight
       }
     } else {
       serialize(node, properties)
     }
   }
 
-  def serializeAsJson(element: Element, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]): Seq[Throwable] \/ String = {
+  def serializeAsJson(element: Element, serializerProperties: Map[String, String], typeMappings: Map[NodePath, (LiteralTypeConfig, Option[String])]): Either[Seq[Throwable], String] = {
     //TODO(AR) need to set the type/name mappings
     val properties = new Properties()
 
@@ -204,7 +203,7 @@ object Serializer {
     serialize(element, properties)
   }
 
-  def serialize(node: Node, properties: Properties): Seq[Throwable] \/ String = {
+  def serialize(node: Node, properties: Properties): Either[Seq[Throwable], String] = {
 
     val serializationIO = Resource.make(IO {serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer]})(serializer => IO {serializerPool.returnObject()}).use { serializer =>
       Resource.fromAutoCloseable(IO {new StringWriter()}).use { writer =>
@@ -220,7 +219,7 @@ object Serializer {
     }
 
     serializationIO
-      .redeem(_.left.leftMap(Seq(_)), _.right)
+      .redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
       .unsafeRunSync()
   }
 }

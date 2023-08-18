@@ -10,9 +10,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
-
-import scalaz._
-import Scalaz._
+import cats.syntax.either._
 
 class LocalIndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"""
   This is a specification to check the JSON Serialization of IndexableRootObject
@@ -41,10 +39,10 @@ class LocalIndexableRootObjectJsonSerializerSpec extends Specification { def is 
       IO {
         writer.write(json)
       }
-    }.redeem(_.left, _.right).unsafeRunSync() match {
-      case \/-(_) =>
+    }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
+      case Right(_) =>
         p
-      case -\/(t) =>
+      case Left(t) =>
         throw t
     }
   }
@@ -56,10 +54,10 @@ class LocalIndexableRootObjectJsonSerializerSpec extends Specification { def is 
         mapper.writeValue(writer, obj)
         writer.toString
       }
-    }.redeem(_.left, _.right).unsafeRunSync() match {
-      case \/-(s) =>
+    }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
+      case Right(s) =>
         s
-      case -\/(t) =>
+      case Left(t) =>
         throw t
     }
   }

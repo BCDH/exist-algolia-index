@@ -5,10 +5,9 @@ import java.nio.charset.StandardCharsets
 
 import cats.effect.{IO, Resource}
 import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
+import cats.syntax.either._
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.{Attr, Document, Element, Node}
-import scalaz.{-\/, \/, \/-}
-import scalaz.syntax.either._
 
 import scala.annotation.tailrec
 import scala.util.{Failure, Success}
@@ -24,10 +23,10 @@ object DOMHelper {
       IO {
         documentBuilder.parse(is)
       }
-    }.redeem(_.left, _.right).unsafeRunSync() match {
-      case \/-(s) =>
+    }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
+      case Right(s) =>
         s
-      case -\/(t) =>
+      case Left(t) =>
         throw t
     }
   }

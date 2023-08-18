@@ -40,7 +40,7 @@ import org.exist.storage.txn.Txn
 import org.exist.util.{Configuration, ConfigurationHelper, DatabaseConfigurationException, FileUtils}
 import org.specs2.specification.{BeforeAfterAll, BeforeAfterEach}
 
-import scalaz.\/
+import cats.syntax.either._
 
 /**
   * Helper traits for integration testing eXist-db with Specs2
@@ -172,32 +172,30 @@ trait ExistServerStartStopHelper {
 }
 
 object ExistAPIHelper {
-  import scalaz._
-  import Scalaz._
 
-  def withBroker[T](f: DBBroker => T)(implicit brokerPool: BrokerPool): \/[Exception, T] = {
+  def withBroker[T](f: DBBroker => T)(implicit brokerPool: BrokerPool): Either[Exception, T] = {
     val broker = brokerPool.get(java.util.Optional.of(brokerPool.getSecurityManager.getSystemSubject))
     try {
-      f(broker).right
+      f(broker).asRight
     } catch {
       case e: Exception =>
-        e.left
+        e.asLeft
     } finally {
       ScalaBrokerPoolBridge.release(brokerPool, broker)
     }
   }
 
-  def withTxn[T](f: Txn => T)(implicit brokerPool: BrokerPool): \/[Exception, T] = {
+  def withTxn[T](f: Txn => T)(implicit brokerPool: BrokerPool): Either[Exception, T] = {
     val txnMgr = brokerPool.getTransactionManager
     val txn = txnMgr.beginTransaction()
     try {
-      val result = f(txn).right
+      val result = f(txn).asRight
       txn.commit()
       result
     } catch {
       case e: Exception =>
         txn.abort()
-        e.left
+        e.asLeft
     } finally {
       txn.close()
     }
