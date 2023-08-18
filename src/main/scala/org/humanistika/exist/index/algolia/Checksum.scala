@@ -22,6 +22,7 @@ import java.nio.file.{Files, Path}
 import java.security.MessageDigest
 
 import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 import scalaz.\/
 import scalaz.syntax.std.either._
 

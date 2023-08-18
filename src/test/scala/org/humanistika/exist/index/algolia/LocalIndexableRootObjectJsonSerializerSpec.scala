@@ -9,6 +9,7 @@ import org.specs2.Specification
 import java.nio.charset.StandardCharsets.UTF_8
 
 import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 
 import scalaz._
 import Scalaz._

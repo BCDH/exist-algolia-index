@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 
 import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.{Attr, Document, Element, Node}
 import scalaz.{-\/, \/, \/-}

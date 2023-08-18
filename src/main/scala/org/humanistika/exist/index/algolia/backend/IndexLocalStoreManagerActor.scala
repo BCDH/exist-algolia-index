@@ -39,6 +39,7 @@ import scala.util.{Failure, Success, Try}
 import scalaz.{-\/, \/, \/-}
 import scalaz.syntax.either._
 import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
 

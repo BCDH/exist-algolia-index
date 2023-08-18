@@ -32,6 +32,7 @@ import org.w3c.dom.{Attr, Element, NamedNodeMap, Node, NodeList, Text}
 import scalaz.{-\/, \/, \/-}
 import scalaz.syntax.either._
 import cats.effect.{IO, Resource}
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 
 object Serializer {
 

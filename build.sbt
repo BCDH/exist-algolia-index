@@ -23,7 +23,7 @@ headers := Map(
 libraryDependencies ++= {
 
   val scalazV = "7.2.26"
-  val catsV = "1.0.0"
+  val catsV = "3.5.1"
   val existV = "4.4.0"
   val algoliaV = "2.19.0"
   val akkaV = "2.5.16"
