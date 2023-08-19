@@ -29,10 +29,10 @@ lazy val root = Project("exist-algolia-index", file("."))
     libraryDependencies ++= {
 
   val catsCoreV = "2.10.0"
-  val existV = "4.4.0"
+  val existV = "6.2.0"
   val algoliaV = "2.19.0"
   val akkaV = "2.6.20"
-  val jacksonV = "2.9.7"
+  val jacksonV = "2.13.4"
 
   Seq(
         "org.scala-lang.modules" %% "scala-java8-compat" % "1.0.2",
@@ -45,9 +45,9 @@ lazy val root = Project("exist-algolia-index", file("."))
 
         "org.exist-db" % "exist-core" % existV % Provided
           exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
-        "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % Provided,
+        "net.sf.saxon" % "Saxon-HE" % "9.9.1-8" % Provided,
         "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
-        "commons-codec" % "commons-codec" % "1.11" % Provided,
+        "commons-codec" % "commons-codec" % "1.15" % Provided,
 
         "com.fasterxml.jackson.core" % "jackson-databind" % jacksonV
           exclude("com.fasterxml.jackson.core", "jackson-core"),
@@ -66,7 +66,7 @@ lazy val root = Project("exist-algolia-index", file("."))
         "org.easymock" % "easymock" % "3.6" % Test,
 
         "org.exist-db" % "exist-start" % existV % Test,
-        "org.apache.httpcomponents" % "httpclient" % "4.5.6" % Test
+        "org.apache.httpcomponents" % "httpclient" % "4.5.14" % Test
       )
     },
     publishMavenStyle := true,
@@ -122,8 +122,14 @@ Compile / assembly / artifact := {
   art.withClassifier(Some("assembly"))
 }
 
-addArtifact(Compile / assembly / artifact, assembly)
+assembly / assemblyMergeStrategy := {
+  case PathList("META-INF", "versions", "9", xs @ _*) => MergeStrategy.discard
+  case x =>
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
+    oldStrategy(x)
+}
 
+addArtifact(Compile / assembly / artifact, assembly)
 
 pomExtra := (
   <developers>
