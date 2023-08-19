@@ -22,8 +22,8 @@ headers := Map(
 
 libraryDependencies ++= {
 
-  val scalazV = "7.2.26"
-  val catsV = "1.0.0"
+  val catsCoreV = "2.10.0"
+  val catsEffectV = "3.5.1"
   val existV = "4.4.0"
   val algoliaV = "2.19.0"
   val akkaV = "2.5.16"
@@ -32,9 +32,8 @@ libraryDependencies ++= {
   Seq(
     "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.1",
     "org.scala-lang.modules" %% "scala-java8-compat" % "0.9.0",
-    "org.scalaz" %% "scalaz-core" % scalazV,
-    "org.typelevel" %% "cats-effect" % catsV,
-
+    "org.typelevel" %% "cats-core" % catsCoreV,
+    "org.typelevel" %% "cats-effect" % catsEffectV,
     "org.clapper" %% "grizzled-slf4j" % "1.3.2"
       exclude("org.slf4j", "slf4j-api"),
 

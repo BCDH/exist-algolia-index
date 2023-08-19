@@ -22,8 +22,7 @@ import java.nio.file.{Files, Path}
 import java.security.MessageDigest
 
 import cats.effect.{IO, Resource}
-import scalaz.\/
-import scalaz.syntax.std.either._
+import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 
 import scala.annotation.tailrec
 
@@ -49,7 +48,7 @@ object Checksum {
     * @param algorithm the algorithm to use for calculating the checksum.
     * @param bufferSize the size of the buffer to use when calculating the checksum (default is 16 KB)
     */
-  def checksum(file: Path, algorithm: Algorithm, bufferSize: Int = 16 * 1024) : Throwable \/ Array[Byte] = {
+  def checksum(file: Path, algorithm: Algorithm, bufferSize: Int = 16 * 1024) : Either[Throwable, Array[Byte]] = {
 
     def digestStream(is: InputStream, buf: Array[Byte], digest: MessageDigest): Array[Byte] = {
       @tailrec
@@ -78,7 +77,6 @@ object Checksum {
 
     checksumIO
       .attempt
-      .map(_.disjunction)
       .unsafeRunSync()
   }
 

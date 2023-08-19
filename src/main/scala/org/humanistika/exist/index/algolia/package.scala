@@ -28,20 +28,18 @@ import org.exist.storage.NodePath
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.OBJECT_ID_FIELD_NAME
 import org.w3c.dom.{Attr, Element}
 
-import scalaz.\/
-
 package object algolia {
 
   type Name = String
   type IndexName = Name
 
-  type ElementOrAttributeImpl = ElementImpl \/ AttrImpl
-  type ElementOrAttribute = Element \/ Attr
+  type ElementOrAttributeImpl = Either[ElementImpl, AttrImpl]
+  type ElementOrAttribute = Either[Element, Attr]
   type ElementKV = (QName, String)  // qname and serialized XML as JSON
   type AttributeKV = (QName, String)  // substitute for org.exist.dom.memtree.AttrImpl as we have has trouble converting from org.exist.dom.persistent.AttrImpl
-  type ElementOrAttributeKV = ElementKV \/ AttributeKV
+  type ElementOrAttributeKV = Either[ElementKV, AttributeKV]
 
-  type IndexableAttributeOrObject = IndexableAttribute \/ IndexableObject
+  type IndexableAttributeOrObject = Either[IndexableAttribute, IndexableObject]
 
   object LiteralTypeConfig extends Enumeration {
     type LiteralTypeConfig = Value
@@ -56,7 +54,7 @@ package object algolia {
   type DocumentId = Int
   type objectID = String
 
-  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[IndexableAttribute \/ IndexableObject])
+  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[Either[IndexableAttribute, IndexableObject]])
   case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
   case class IndexableObject(name: Name, values: IndexableValues)
 

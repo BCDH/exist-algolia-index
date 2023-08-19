@@ -23,8 +23,7 @@ import IndexableRootObjectJsonSerializer._
 import grizzled.slf4j.Logger
 import JsonUtil._
 
-import scalaz.{-\/, \/, \/-}
-import scalaz.syntax.either._
+import cats.syntax.either._
 
 object IndexableRootObjectJsonSerializer {
   val OBJECT_ID_FIELD_NAME = "objectID"
@@ -54,49 +53,49 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
     gen.writeEndObject()
   }
 
-  private def serializeChildren(children: Seq[IndexableAttribute \/ IndexableObject], gen: JsonGenerator, serializers: SerializerProvider) {
+  private def serializeChildren(children: Seq[Either[IndexableAttribute, IndexableObject]], gen: JsonGenerator, serializers: SerializerProvider) {
     for(child <- children) {
       child match {
-        case -\/(attr)=>
+        case Left(attr)=>
           serializeAttribute(attr, gen, serializers)
-        case \/-(obj)=>
+        case Right(obj)=>
           serializeObject(obj, gen, serializers)
       }
     }
   }
 
   private def serializeAttribute(attr: IndexableAttribute, gen: JsonGenerator, serializers: SerializerProvider) {
-    val values: Seq[Throwable] \/ Seq[String] = attr.values.map( _ match {
-      case IndexableValue(id, -\/(element)) =>
-        element._2.right
-      case IndexableValue(id, \/-(attribute)) =>
-        attribute._2.right
+    val values: Either[Seq[Throwable], Seq[String]] = attr.values.map( _ match {
+      case IndexableValue(id, Left(element)) =>
+        element._2.asRight
+      case IndexableValue(id, Right(attribute)) =>
+        attribute._2.asRight
     }).foldLeft((Seq.empty[Throwable], Seq.empty[String])) { case (accum, lr) =>
       lr match {
-        case \/-(str) if accum._1.isEmpty =>
+        case Right(str) if accum._1.isEmpty =>
           (accum._1, accum._2 :+ str)
-        case \/-(_) if accum._1.nonEmpty =>
+        case Right(_) if accum._1.nonEmpty =>
           (accum._1, Seq.empty)
-        case -\/(ts) =>
+        case Left(ts) =>
           (accum._1 ++ ts, Seq.empty)
       }
     } match {
       case (ts, strs) if ts.isEmpty =>
-        strs.right
+        strs.asRight
       case (ts, strs) if ts.nonEmpty =>
-        ts.left
+        ts.asLeft
     }
 
     values match {
-      case \/-(vs) if(vs.size > 1) =>
+      case Right(vs) if(vs.size > 1) =>
         gen.writeArrayFieldStart(attr.name)
         writeValueFields(gen, attr.literalType, vs)
         gen.writeEndArray()
 
-      case \/-(vs) =>
+      case Right(vs) =>
         writeKeyValueField(gen, attr.literalType)(attr.name, vs.head)
 
-      case -\/(ts) =>
+      case Left(ts) =>
         logger.error(s"Unable to serialize IndexableAttribute: ${attr.name}", ts)
     }
   }
@@ -107,7 +106,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
       gen.writeArrayFieldStart(obj.name)
 
       obj.values.map(_ match {
-        case IndexableValue(id, -\/(element)) =>
+        case IndexableValue(id, Left(element)) =>
           gen.writeStartObject()
           gen.writeStringField("nodeId", id)
 
@@ -115,7 +114,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
           gen.writeEndObject()
 
-        case IndexableValue(_, \/-(attribute)) =>
+        case IndexableValue(_, Right(attribute)) =>
           writeValueField(gen, LiteralTypeConfig.String, attribute._2)
       })
 
@@ -123,7 +122,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
     } else {
       obj.values.headOption match {
-        case Some(IndexableValue(id, -\/(element))) =>
+        case Some(IndexableValue(id, Left(element))) =>
           gen.writeObjectFieldStart(obj.name)
           gen.writeStringField("nodeId", id)
 
@@ -131,7 +130,7 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
 
           gen.writeEndObject()
 
-        case Some(IndexableValue(_, \/-(attribute))) =>
+        case Some(IndexableValue(_, Right(attribute))) =>
           //a org.w3c.dom.Attr can never be converted to an object, so just serialize the value as a String field
           writeKeyValueField(gen, LiteralTypeConfig.String)(obj.name, attribute._2)
 

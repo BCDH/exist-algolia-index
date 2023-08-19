@@ -41,9 +41,9 @@ import org.w3c.dom._
 import JsonUtil.writeValueField
 import org.exist.util.serializer.SAXSerializer
 
+import cats.syntax.either._
+
 import scala.collection.JavaConverters._
-import scalaz._
-import Scalaz._
 
 
 object AlgoliaStreamListener {
@@ -119,7 +119,7 @@ object AlgoliaStreamListener {
       } else {
         def notEqual(index: Int): Boolean = !nodePath.getComponent(index).equals(other.getComponent(index))
         val notStartsWith = (0 until other.length()).find(notEqual)
-        notStartsWith.empty
+        notStartsWith.isEmpty
       }
     }
 
@@ -244,7 +244,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     context.push(ContextElement(element.getQName.toJavaQName, Map.empty))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    updateUserSpecifiedDocumentIds(pathClone, element.left)
+    updateUserSpecifiedDocumentIds(pathClone, element.asLeft)
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -266,12 +266,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     context.push(contextElement.copy(attributes = newAttributes))
 
     // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    updateUserSpecifiedDocumentIds(pathClone, attrib.right)
+    updateUserSpecifiedDocumentIds(pathClone, attrib.asRight)
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
         // update any PartialRootObjects children which match this attribute
-        updateProcessingChildren(pathClone, attrib.right)
+        updateProcessingChildren(pathClone, attrib.asRight)
 
         // update any user defined nodes ids which match this attribute
         updateUserSpecifiedNodeIds(pathClone, attrib)
@@ -326,40 +326,40 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private def updateUserSpecifiedDocumentIds(path: NodePath, node: ElementOrAttributeImpl): Unit = {
     for ((indexName, usdid) <- userSpecifiedDocumentIds if usdid.value.isEmpty && usdid.path.equals(path)) {
       getString(node) match {
-        case \/-(idValue) if(!idValue.isEmpty) =>
+        case Right(idValue) if(!idValue.isEmpty) =>
           this.userSpecifiedDocumentIds = userSpecifiedDocumentIds + (indexName -> usdid.copy(value = Some(idValue)))
 
-        case \/-(idValue) if(idValue.isEmpty) =>
+        case Right(idValue) if(idValue.isEmpty) =>
           val name = foldNode(node, _.getNodeName)
           val docId = foldNode(node, _.getOwnerDocument.getDocId)
           val nodeId = foldNode(node, _.getNodeId.toString)
-          logger.error(s"UserSpecifiedDocumentIds: Unable to use empty string for node name=$name docId=$id nodeId=$nodeId")
+          logger.error(s"UserSpecifiedDocumentIds: Unable to use empty string for node name=$name docId=$docId nodeId=$nodeId")
 
-        case -\/(ts) =>
+        case Left(ts) =>
           val name = foldNode(node, _.getNodeName)
           val docId = foldNode(node, _.getOwnerDocument.getDocId)
           val nodeId = foldNode(node, _.getNodeId.toString)
-          logger.error(s"UserSpecifiedDocumentIds: Unable to serialize node name=$name docId=$id nodeId=$nodeId", ts)
+          logger.error(s"UserSpecifiedDocumentIds: Unable to serialize node name=$name docId=$docId nodeId=$nodeId", ts)
       }
     }
   }
 
   private def updateUserSpecifiedNodeIds(path: NodePath, attrib: AttrImpl): Unit = {
     for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(path)) {   //TODO(AR) do we need to compare the index name?
-      getString(attrib.right) match {
-        case \/-(idValue) if(!idValue.isEmpty) =>
+      getString(attrib.asRight) match {
+        case Right(idValue) if(!idValue.isEmpty) =>
           this.userSpecifiedNodeIds = userSpecifiedNodeIds + ((indexName, nodeIdPath) -> Some(idValue))
 
-        case \/-(idValue) if(idValue.isEmpty) =>
+        case Right(idValue) if(idValue.isEmpty) =>
           logger.error(s"UserSpecifiedNodeIds: Unable to use empty string for attribute name=${attrib.getNodeName} docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}")
 
-        case -\/(ts) =>
+        case Left(ts) =>
           logger.error(s"UserSpecifiedNodeIds: Unable to serialize attribute name=${attrib.getNodeName} docId=${attrib.getOwnerDocument.getDocId} nodeId=${attrib.getNodeId.toString}", ts)
       }
     }
   }
 
-  //def fold[LR, T](disjunction: \/[_ <: LR, _ <: LR], f: LR => T): T = disjunction.fold(f, f)
+  //def fold[LR, T](disjunction: Either[_ <: LR, _ <: LR], f: LR => T): T = disjunction.fold(f, f)
   def foldNode[T](node: ElementOrAttributeImpl, f: NodeImpl[_] => T): T = node.fold(f, f)
 
   private def removeForDocument() = {
@@ -394,7 +394,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       val processingAtPath = processing.get(pathClone) match {
         case Some(existingElementRootObjects) =>
           // we filter out newElementRootObjects that are equivalent to elementRootObjects which we are already processing
-          existingElementRootObjects ++ newElementRootObjects.filterNot(newElementRootObject => existingElementRootObjects.find(_.identityEquals(newElementRootObject)).empty)
+          existingElementRootObjects ++ newElementRootObjects.filterNot(newElementRootObject => existingElementRootObjects.find(_.identityEquals(newElementRootObject)).isEmpty)
         case None =>
           newElementRootObjects
       }
@@ -411,7 +411,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
   private def endElementForStore(transaction: Txn, element: ElementImpl, pathClone: NodePath) {
     // update any PartialRootObjects children which match this element
-    updateProcessingChildren(pathClone, element.left)
+    updateProcessingChildren(pathClone, element.asLeft)
 
     // find any new RootObjects that we should finish processing
     // they must match the nodePath and also have a userSpecifiedDocumentId
@@ -573,7 +573,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     firstMatchFailure.isEmpty
   }
 
-  private def getString(node: ElementOrAttributeImpl): Seq[Throwable] \/ String = node.fold(serializeAsText, _.getValue.right)
+  private def getString(node: ElementOrAttributeImpl): Either[Seq[Throwable], String] = node.fold(serializeAsText, _.getValue.asRight)
 
   private def updateProcessingChildren(path: NodePath, node: ElementOrAttributeImpl) {
 
@@ -585,14 +585,14 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
       def getMatchingNewChildren(existingChild: IndexableAttributeOrObject): Seq[IndexableAttributeOrObject] = {
         newChildren.collect {
-          case la @ -\/(newIndexableAttribute) if existingChild.isLeft && name(existingChild) == newIndexableAttribute.name =>
+          case la @ Left(newIndexableAttribute) if existingChild.isLeft && name(existingChild) == newIndexableAttribute.name =>
             la
-          case ro @ \/-(newIndexableObject) if existingChild.isRight && name(existingChild) == newIndexableObject.name =>
+          case ro @ Right(newIndexableObject) if existingChild.isRight && name(existingChild) == newIndexableObject.name =>
             ro
         }
       }
 
-      def sameSide[L,R](a: \/[L, R], b: \/[L,R]): Boolean = (a.isLeft && b.isLeft) || (a.isRight && b.isRight)
+      def sameSide[L,R](a: Either[L, R], b: Either[L,R]): Boolean = (a.isLeft && b.isLeft) || (a.isRight && b.isRight)
 
       def mergeIndexableValues(existingIndexableValues: IndexableValues, newIndexableValues: IndexableValues): IndexableValues = {
         def isAttrOf(elemNodeId: String, attrNodeId: String): Boolean = {
@@ -614,7 +614,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       // step 2, add any newChildren which don't have existingChildren matches
       val nonExistingNewChildren = newChildren.filter(newChild =>
         existingChildren.find(existingChild =>
-          sameSide(newChild, existingChild) && name(newChild) == name(existingChild)).empty
+          sameSide(newChild, existingChild) && name(newChild) == name(existingChild)).isEmpty
       )
 
       updatedExistingChildren ++ nonExistingNewChildren
@@ -622,11 +622,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
 //    def serializeElementForAttribute(element: ElementImpl) : String = {
 //      serializeAsText(element) match {
-//        case -\/(ts) =>
+//        case Left(ts) =>
 //          logger.error("Unable to serialize element: " + element.getNodeId.toString, ts)
 //          throw ts.head
 //
-//        case \/-(string) =>
+//        case Right(string) =>
 //          string
 //      }
 //    }
@@ -638,11 +638,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 //        val jsonBody = json.map(jsonObjectAsObjectBody(_))
 //
 //        jsonBody match {
-//          case \/-(rawJson) =>
+//          case Right(rawJson) =>
 //            gen.writeRaw (',')
 //            gen.writeRaw (rawJson)
 //
-//          case -\/(ts) =>
+//          case Left(ts) =>
 //            logger.error(s"Unable to serialize IndexableObject: ${objName}", ts)
 //        }
 //      }
@@ -742,37 +742,37 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 //        stripStartObjectEndObject(writer.toString)
 //
 //      }.either.either.disjunction match {
-//        case -\/(ts) =>
+//        case Left(ts) =>
 //          logger.error("Unable to serialize element: " + element.getNodeId.toString, ts)
 //          throw ts.head
 //
-//        case \/-(string) =>
+//        case Right(string) =>
 //          string
 //      }
 //    }
 
-    def toInMemory(node: ElementOrAttributeImpl, elemSerializer: ElementImpl => Seq[Throwable] \/ String): ElementOrAttributeKV = {
-      val serializationResult : \/[Seq[Throwable], ElementOrAttributeKV] = node match {
-        case -\/(element) =>
+    def toInMemory(node: ElementOrAttributeImpl, elemSerializer: ElementImpl => Either[Seq[Throwable], String]): ElementOrAttributeKV = {
+      val serializationResult : Either[Seq[Throwable], ElementOrAttributeKV] = node match {
+        case Left(element) =>
             elemSerializer(element).map(elementContent =>
               (
                 asQName(ns.asScala.toMap, Option(element.getNamespaceURI), element.getLocalName, Option(element.getPrefix)),
                 elementContent
-              ).left
+              ).asLeft
             )
 
-        case \/-(attribute) =>
+        case Right(attribute) =>
           (
             asQName(ns.asScala.toMap, Option(attribute.getNamespaceURI), attribute.getLocalName, Option(attribute.getPrefix)),
             attribute.getValue
-          ).right.right
+          ).asRight.asRight
       }
 
       serializationResult match {
-        case -\/(ts) =>
+        case Left(ts) =>
             logger.error(s"""Unable to serialize ${foldNode(node, _.getClass.getSimpleName)}: ${foldNode(node, _.getNodeId).toString}""", ts)
             throw ts.head
-        case \/-(kv) => kv
+        case Right(kv) => kv
       }
     }
 
@@ -808,7 +808,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node, serializeElementForObject(objectConfig.getName, toScalaProperties(Option(objectConfig.getSerializer).flatMap(s => Option(s.getProperties))), getObjectMappings(objectConfig)))))))
 
       if(attributes.nonEmpty || objects.nonEmpty) {
-        val newChildren : Seq[IndexableAttribute \/ IndexableObject] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.right) ++ attributes.map(_.left))
+        val newChildren : Seq[Either[IndexableAttribute, IndexableObject]] = mergeIndexableChildren(partialRootObject.indexable.children, objects.map(_.asRight) ++ attributes.map(_.asLeft))
         val newPartialRootObject = partialRootObject.copy(indexable = partialRootObject.indexable.copy(children = newChildren))
         val newPartialRootObjects = this.processing(rootObjectNodePath).filterNot(_ == partialRootObject) :+ newPartialRootObject
 
