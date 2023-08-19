@@ -173,11 +173,33 @@ object Serializer {
       val text: Seq[Either[Seq[Throwable], String]] = for(i <- (0 until children.getLength))
         yield serialize(children.item(i), properties)
 
-      text.map(_.asLeft.getOrElse(Seq.empty)).flatten match {
-        case errors: Seq[Throwable] if errors.nonEmpty =>
-          errors.asLeft
-        case _ =>
-          text.map(_.map(Some(_)).getOrElse(None)).flatten.mkString("").asRight
+      /**
+       * Fold over the `text` to convert from the type Seq[Either[Seq[Throwable], String]]
+       * to the type Either[Seq[Throwable], String].
+       *
+       * This is done by iterating over each result item in `text`, if there
+       * is an error, only errors are accumulated in a list and results are discarded.
+       * If there are no errors, then the strings results are concatenated into a single string.
+       */
+      val initialValue = Either.right[Seq[Throwable], String]("")
+      text.foldLeft(initialValue) { case (accum, item) =>
+        accum match {
+          case Left(accumErrors) =>
+            item match {
+              case Left(itemErrors) =>
+                Left(accumErrors ++: itemErrors)
+              case Right(_) =>
+                accum
+            }
+
+          case Right(accumResult) =>
+            item match {
+              case Left(_) =>
+                item
+              case Right(itemResult) =>
+                Right(accumResult + itemResult)
+            }
+        }
       }
     } else {
       serialize(node, properties)
