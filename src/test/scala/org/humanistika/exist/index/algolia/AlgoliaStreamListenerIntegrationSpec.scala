@@ -6,7 +6,7 @@ import akka.actor.{ActorRef, ActorSystem}
 import org.exist.collections.CollectionConfiguration
 import org.exist.indexing.IndexWorker
 import org.exist.storage.{BrokerPool, DBBroker, ScalaBrokerPoolBridge}
-import org.exist.util.FileInputSource
+import org.exist.util.{FileInputSource, MimeType}
 import org.exist.xmldb.XmldbURI
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, StartDocument}
@@ -460,9 +460,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
         val collection = broker.getOrCreateCollection(txn, XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath))
         broker.saveCollection(txn, collection)
 
-        val indexInfo = collection.validateXMLResource(txn, broker, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf)
-        collection.store(txn, broker, indexInfo, collectionConf)
-        //collection.close()
+        broker.storeDocument(txn, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf, MimeType.XML_TYPE, collection)
+        collection.close()
       }
     }
   }
@@ -478,10 +477,10 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
         broker.saveCollection(txn, collection)
         val collectionId = collection.getId
 
-        val indexInfo = collection.validateXMLResource(txn, broker, XmldbURI.create("VSK.TEST.xml"), dataFile)
-        collection.store(txn, broker, indexInfo, dataFile)
-        val docId = indexInfo.getDocument.getDocId
-        //collection.close()
+        broker.storeDocument(txn, XmldbURI.create("VSK.TEST.xml"), dataFile, MimeType.XML_TYPE, collection)
+        val doc = collection.getDocument(broker,XmldbURI.create("VSK.TEST.xml"))
+        val docId = doc.getDocId
+        collection.close()
 
         (collectionId, docId)
       }
