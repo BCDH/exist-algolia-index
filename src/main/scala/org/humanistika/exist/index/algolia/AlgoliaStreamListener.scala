@@ -488,10 +488,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private def isDocumentRootObject(rootObject: RootObject): Boolean = Option(rootObject.getPath).forall(path => path.isEmpty || path.equals("/"))
 
   private def isElementRootObject(currentNode: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
-    // nodePath(ns, rootObject.getPath) == path
-
     val rootObjectPath = NodePathWithPredicates.parse(ns.asScala.toMap, rootObject.getPath)
-    if(rootObjectPath.asNodePath == path) {
+    val rootNodePath: NodePath = rootObjectPath.asNodePath
+    val pathsEqual: Boolean = rootNodePath.equals(path)
+
+    if (pathsEqual) {
       nodePathAndPredicatesMatch(currentNode)(rootObjectPath)
     } else {
       false
