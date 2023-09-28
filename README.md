@@ -19,7 +19,7 @@ It's probably a good idea to start with a clean database, which means a complete
 
 - Make sure eXist is not running
 
-- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.jar` into eXist's `lib/user`.
+- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.0.jar` into eXist's `lib/user`.
 
 - Modify eXist's `conf.xml` file by adding the following line to the `indexer/modules` section:
 
