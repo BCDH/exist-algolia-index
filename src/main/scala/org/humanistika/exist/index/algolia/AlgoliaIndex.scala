@@ -83,7 +83,7 @@ class AlgoliaIndex(_system: Option[ActorSystem] = None, _incrementalIndexingMana
     system match {
       case Some(sys) =>
         import scala.concurrent.duration._
-        Await.ready(sys.terminate(), 2 minutes)
+        Await.ready(sys.terminate(), 2.minutes)
         system = None // remember we have stopped!
 
       case None =>

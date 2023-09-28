@@ -7,17 +7,16 @@ version := "1.0"
 
 licenses := Seq("GNU General Public License, version 3" -> url("http://opensource.org/licenses/gpl-3.0"))
 
+organizationName := "Belgrade Center for Digital Humanities"
+
 homepage := Some(url("https://github.com/bcdh/exist-algolia-index"))
 
 
-scalaVersion := "2.12.6"
+scalaVersion := "2.13.12"
 
-
-import de.heikoseeberger.sbtheader.license.GPLv3
-
-headers := Map(
-  "scala" -> GPLv3("2017", "Belgrade Center for Digital Humanities")
-)
+//headers := Map(
+//  "scala" -> GPLv3("2017", "Belgrade Center for Digital Humanities")
+//)
 
 
 libraryDependencies ++= {
@@ -25,14 +24,14 @@ libraryDependencies ++= {
   val catsCoreV = "2.10.0"
   val existV = "4.4.0"
   val algoliaV = "2.19.0"
-  val akkaV = "2.5.16"
+  val akkaV = "2.6.20"
   val jacksonV = "2.9.7"
 
   Seq(
-    "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.1",
-    "org.scala-lang.modules" %% "scala-java8-compat" % "0.9.0",
+    "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0",
+    "org.scala-lang.modules" %% "scala-java8-compat" % "1.0.2",
     "org.typelevel" %% "cats-core" % catsCoreV,
-    "org.clapper" %% "grizzled-slf4j" % "1.3.2"
+    "org.clapper" %% "grizzled-slf4j" % "1.3.4"
       exclude("org.slf4j", "slf4j-api"),
 
     "org.exist-db" % "exist-core" % existV % Provided
@@ -54,7 +53,7 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-actor" % akkaV,
     "com.typesafe.akka" %% "akka-testkit" % akkaV,
 
-    "org.specs2" %% "specs2-core" % "3.9.5" % Test,
+    "org.specs2" %% "specs2-core" % "4.20.2" % Test,
     "org.easymock" % "easymock" % "3.6" % Test,
 
     "org.exist-db" % "exist-start" % existV % Test,
@@ -73,6 +72,7 @@ resolvers +=
 
 // Fancy up the Assembly JAR
 packageOptions in (Compile, packageBin) +=  {
+  import scala.sys.process._
   import java.text.SimpleDateFormat
   import java.util.Calendar
   import java.util.jar.Manifest
@@ -100,14 +100,14 @@ packageOptions in (Compile, packageBin) +=  {
   Package.JarManifest(manifest)
 }
 
-
+//TODO(AR) figure out how to reinstate this - look at some of the CTD projects from TNA
 // Add assembly to publish step
-artifact in (Compile, assembly) := {
-  val art = (artifact in (Compile, assembly)).value
-  art.copy(`classifier` = Some("assembly"))
-}
-
-addArtifact(artifact in (Compile, assembly), assembly)
+//artifact in (Compile, assembly) := {
+//  val art = (artifact in (Compile, assembly)).value
+//  art.copy(`classifier` = Some("assembly"))
+//}
+//
+//addArtifact(artifact in (Compile, assembly), assembly)
 
 
 // Publish to Maven Central

@@ -40,7 +40,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-basic")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -86,7 +86,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-element-without-attributes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -120,7 +120,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-predicate")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -164,7 +164,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-multi-predicates")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -194,7 +194,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-user-specified-docId")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -241,7 +241,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-user-specified-docId-and-nodeId")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -287,7 +287,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-text-nodes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -315,7 +315,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-attributes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -343,7 +343,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-text-nodes-and-attributes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -371,7 +371,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-object-based-mixed-content-nodes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -399,7 +399,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val testCollectionPath = XmldbURI.create("/db/test-integration-attribute-based-text-nodes")
 
       // register our index
-      implicit val brokerPool = getBrokerPool
+      implicit val brokerPool : BrokerPool = getBrokerPool
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
@@ -425,7 +425,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
   }
 
 
-  type NameAndValueIds = (Name, Seq[String])
+  type NameAndValueIds = (String, Seq[String])
   type IndexableAttributeNameAndValueIds = NameAndValueIds
   type IndexableObjectNameAndValueIds = NameAndValueIds
 

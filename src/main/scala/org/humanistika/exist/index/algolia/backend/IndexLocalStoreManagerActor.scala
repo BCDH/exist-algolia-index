@@ -169,9 +169,9 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       //stop the perDocumentActors, we want exclusive access
       val stopped: Iterable[Future[(DocumentId, Boolean)]] =
         for((documentId, perDocumentActor) <- perDocumentActors)
-          yield gracefulStop(perDocumentActor, 2 minutes).map((documentId, _))
+          yield gracefulStop(perDocumentActor, 2.minutes).map((documentId, _))
 
-      Try(Await.result(Future.sequence(stopped), 5 minutes)) match {
+      Try(Await.result(Future.sequence(stopped), 5.minutes)) match {
         case Success(stoppedPerDocumentActors) if !stoppedPerDocumentActors.exists(!_._2) =>
           // all perDocuemntActors were gracefully stopped
           this.perDocumentActors = Map.empty
@@ -181,7 +181,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
               indexDirStream
                 .filter(Files.isDirectory(_))
                 .collect(Collectors.toList())
-                .asScala
+                .asScala.toSeq
                 .map(getLatestTimestampDir(_, None))
           }.get.flatten
 
@@ -236,7 +236,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
         .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
         .filter(matchesCollectionPathRoot)
         .collect(Collectors.toList())
-        .asScala
+        .asScala.toSeq
     }.get
   }
 
@@ -270,7 +270,8 @@ object IndexLocalStoreDocumentActor {
       stream
         .filter(Files.isDirectory(_))
         .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
-        .collect(Collectors.toList()).asScala
+        .collect(Collectors.toList())
+        .asScala
     }.get
       .sortWith { case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2) }
       .headOption
@@ -429,7 +430,8 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
     With(Files.list(dir)) { stream =>
       stream
         .filter(Files.isRegularFile(_))
-        .collect(Collectors.toList()).asScala
+        .collect(Collectors.toList())
+        .asScala.toSeq
     }.toEither.leftMap(Seq(_))
   }
 
