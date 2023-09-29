@@ -1,14 +1,29 @@
+/*
+ * Copyright (C) 2017  Belgrade Center for Digital Humanities
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package org.humanistika.exist.index.algolia
 
 import javax.xml.XMLConstants
 import javax.xml.namespace.QName
-
 import org.exist.storage.NodePath
 import org.humanistika.exist.index.algolia.NodePathWithPredicates._
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.ComponentType.ComponentType
 
-import scala.util.parsing.combinator._
-import scala.annotation.tailrec
+import org.parboiled2._
 
 import cats.syntax.either._
 
@@ -63,108 +78,137 @@ object NodePathWithPredicates {
     override val symbol: String = "="
   }
 
+  def apply(components: Seq[Component]) = new NodePathWithPredicates(components)
+
   @throws[IllegalArgumentException]
-  def apply(namespaces: Map[String, String], path: String): NodePathWithPredicates = {
-    NodePathWithPredicatesParser.parsePath(namespaces, path) match {
+  def parse(namespaces: Map[String, String], path: String): NodePathWithPredicates = {
+    val parser = NodePathWithPredicatesParser(namespaces, path)
+    parser.path.run().toEither match {
       case Right(result) =>
         result
-      case Left(errorMsg) =>
-        throw new IllegalArgumentException(errorMsg)
+      case Left(parseError : ParseError)  =>
+          throw new IllegalArgumentException(parser.formatError(parseError))
+      case Left(throwable) =>
+        throw new IllegalArgumentException(throwable)
     }
   }
 }
 
 
-object NodePathWithPredicatesParser extends RegexParsers {
-
-  def parsePath(namespaces: Map[Prefix, NamespaceURI], nodePathString: String): Either[String, NodePathWithPredicates] = {
-    parseAll(path(namespaces), nodePathString) match {
-      case Success(result, _) =>
-        result.asRight
-      case NoSuccess(msg, _) =>
-        msg.asLeft
+object NodePathWithPredicatesParser {
+    def apply(namespaces: Map[Prefix, NamespaceURI], input: ParserInput): NodePathWithPredicatesParser = {
+      new NodePathWithPredicatesParser(namespaces, input)
     }
+}
+
+class NodePathWithPredicatesParser(val namespaces: Map[Prefix, NamespaceURI], val input: ParserInput) extends Parser {
+
+  def path = rule {
+    absoluteOrRelativePathComponent ~ zeroOrMore(absolutePathComponent) ~ EOI ~> ((maybeLeadingSep: Option[Option[Component]], firstPathComponent: Component, furtherPathComponents: Seq[Seq[Component]]) => {
+      val components = maybeLeadingSep.flatten.toSeq ++ Seq(firstPathComponent) ++ furtherPathComponents.flatten
+      NodePathWithPredicates(components)
+    })
   }
 
-  private def path(namespaces: Map[Prefix, NamespaceURI]): Parser[NodePathWithPredicates] = opt(pathComponentSeparator) ~ pathComponent(namespaces) ~ rep(pathComponentSeparator ~ pathComponent(namespaces)) ^^ {
-    case leadingSep ~ firstPathComponent ~ furtherPathComponents =>
-      val components: Seq[Component] = leadingSep.flatten.toSeq ++ (firstPathComponent +: furtherPathComponents.flatMap { case pcs ~ pc => Seq(pcs.toSeq :+ pc)}.flatten)
-      new NodePathWithPredicates(components)
+  private def absoluteOrRelativePathComponent = rule {
+    optional(pathComponentSeparator) ~ pathComponent
   }
 
-  private def pathComponentSeparator: Parser[Option[Component]] = descendantOrSelfSeparator | childSeparator
-
-  private def descendantOrSelfSeparator = "//" ^^^ {
-    Some(Component(NodePathWithPredicates.SKIP, Seq.empty))
+  private def absolutePathComponent = rule {
+    pathComponentSeparator ~ pathComponent ~> ((separator, component) => (separator.toSeq :+ component))
   }
 
-  private def childSeparator = "/" ^^^ {
-    None
+  private def pathComponentSeparator = rule {
+    descendantOrSelfSeparator | childSeparator
   }
 
-  private def pathComponent(namespaces: Map[Prefix, NamespaceURI]): Parser[Component] = wildcardComponent(namespaces) | attributeComponent(namespaces) | elementComponent(namespaces)
-
-  private def wildcardComponent(namespaces: Map[Prefix, NamespaceURI]) = wildcard ~> rep(predicate(namespaces)) ^^ {
-    case predicates =>
-      Component(NodePathWithPredicates.WILDCARD, predicates)
+  private def descendantOrSelfSeparator = rule {
+      str("//") ~ push(Option(Component(NodePathWithPredicates.SKIP, Seq.empty)))
   }
 
-  private def wildcard = "*"
-
-  private def attributeComponent(namespaces: Map[Prefix, NamespaceURI]) = attributeName(namespaces) ^^ {
-    case attribute =>
-      Component(attribute, Seq.empty)
+  private def childSeparator = rule {
+    ch('/') ~ push(Option.empty[Component])
   }
 
-  private def attributeName(namespaces: Map[Prefix, NamespaceURI]): Parser[TypedQName] = "@" ~> qname(namespaces) ^^ {
-    case qn =>
-      TypedQName(qn, ComponentType.ATTRIBUTE)
+  private def pathComponent = rule {
+    wildcardComponent | attributeComponent | elementComponent
   }
 
-  private def elementComponent(namespaces: Map[Prefix, NamespaceURI]) = elementName(namespaces) ~ rep(predicate(namespaces)) ^^ {
-    case element ~ predicates =>
-      Component(element, predicates)
+  private def wildcardComponent = rule {
+    wildcard ~ zeroOrMore(predicate) ~> (predicates => Component(NodePathWithPredicates.WILDCARD, predicates))
   }
 
-  private def elementName(namespaces: Map[Prefix, NamespaceURI]) = qname(namespaces) ^^ {
-    case qn =>
-      TypedQName(qn, ComponentType.ELEMENT)
+  private def wildcard = rule {
+    ch('*')
   }
 
-  private def qname(namespaces: Map[Prefix, NamespaceURI]) = opt(qnamePrefix <~ ":") ~ qnameLocalPart ^^ {
-    case Some(prefix) ~ local =>
-      val ns = namespaces.get(prefix).getOrElse(XMLConstants.NULL_NS_URI)
-      new QName(ns, local, prefix)
-    case None ~ local =>
-      new QName(local)
+  private def attributeComponent = rule {
+    attributeName ~> (attribute => Component(attribute, Seq.empty))
   }
 
-  private def qnamePrefix = """[a-zA-Z0-9\-]+""".r
-
-  private def qnameLocalPart = """[a-zA-Z0-9\-]+""".r
-
-  private def predicate(namespaces: Map[Prefix, NamespaceURI]): Parser[Predicate] = "[" ~> predicateLeftExpression(namespaces) ~ predicateOperator ~ predicateRightExpression <~ "]" ^^ {
-    case left ~ op ~ right =>
-      Predicate(left, op, Seq(right))
+  private def attributeName = rule {
+    ch('@') ~ qname ~> (qn => TypedQName(qn, ComponentType.ATTRIBUTE))
   }
 
-  private def predicateLeftExpression(namespaces: Map[Prefix, NamespaceURI]) = attributeName(namespaces)
-
-  private def predicateOperator: Parser[ComparisonOperator] = atomicEqualsOperator | atomicNotEqualsOperator | sequenceEqualsOperator
-
-  private def atomicEqualsOperator: Parser[ComparisonOperator] = "eq" ^^^ {
-    AtomicEqualsComparison
+  private def elementComponent = rule {
+    elementName ~ zeroOrMore(predicate) ~> Component
   }
 
-  private def atomicNotEqualsOperator = "ne" ^^^ {
-    AtomicNotEqualsComparison
+  private def elementName = rule {
+    qname ~> (qn => TypedQName(qn, ComponentType.ELEMENT))
   }
 
-  private def sequenceEqualsOperator = "=" ^^^ {
-    SequenceEqualsComparison
+  private def qname = rule {
+    optional(capture(qnamePrefix) ~ ":") ~ capture(qnameLocalPart) ~> ((maybePrefix, localPart) => maybePrefix match {
+      case Some(prefix) =>
+        val ns = namespaces.get(prefix).getOrElse(XMLConstants.NULL_NS_URI)
+        new QName(ns, localPart, prefix)
+      case None =>
+        new QName(localPart)
+    })
   }
 
-  private def predicateRightExpression = predicateRightLiteral
+  private def qnamePrefix = rule {
+    oneOrMore(CharPredicate.AlphaNum ++ '-')
+  }
 
-  private def predicateRightLiteral = "'" ~> """[^'"]*""".r <~ "'"
+  private def qnameLocalPart = rule {
+    oneOrMore(CharPredicate.AlphaNum ++ '-')
+  }
+
+  private def predicate = rule {
+    '[' ~ predicateLeftExpression ~ WS ~ predicateOperator ~ WS ~ predicateRightExpression ~ ']' ~> ((left, op, right) => Predicate(left, op, Seq(right)))
+  }
+
+  private def predicateLeftExpression = rule {
+    attributeName
+  }
+
+  private def predicateOperator = rule {
+    atomicEqualsOperator | atomicNotEqualsOperator | sequenceEqualsOperator
+  }
+
+  private def atomicEqualsOperator = rule {
+    str("eq") ~ push(AtomicEqualsComparison)
+  }
+
+  private def atomicNotEqualsOperator = rule {
+    str("ne") ~ push(AtomicNotEqualsComparison)
+  }
+
+  private def sequenceEqualsOperator = rule {
+    ch('=') ~ push(SequenceEqualsComparison)
+  }
+
+  private def predicateRightExpression = rule {
+    predicateRightLiteral
+  }
+
+  private def predicateRightLiteral = rule {
+    ch('\'') ~ capture(zeroOrMore(noneOf("'\""))) ~ ch('\'')
+  }
+
+  def WS = rule {
+    quiet(zeroOrMore(anyOf(" \t \n")))
+  }
 }

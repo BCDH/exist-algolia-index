@@ -35,11 +35,13 @@ lazy val root = Project("exist-algolia-index", file("."))
   val jacksonV = "2.9.7"
 
   Seq(
-    "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0",
-    "org.scala-lang.modules" %% "scala-java8-compat" % "1.0.2",
-    "org.typelevel" %% "cats-core" % catsCoreV,
-    "org.clapper" %% "grizzled-slf4j" % "1.3.4"
-      exclude("org.slf4j", "slf4j-api"),
+        "org.scala-lang.modules" %% "scala-java8-compat" % "1.0.2",
+        "org.typelevel" %% "cats-core" % catsCoreV,
+
+        "org.parboiled" %% "parboiled" % "2.5.0",
+
+        "org.clapper" %% "grizzled-slf4j" % "1.3.4"
+          exclude("org.slf4j", "slf4j-api"),
 
         "org.exist-db" % "exist-core" % existV % Provided
           exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),

@@ -490,7 +490,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private def isElementRootObject(currentNode: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
     // nodePath(ns, rootObject.getPath) == path
 
-    val rootObjectPath = NodePathWithPredicates(ns.asScala.toMap, rootObject.getPath)
+    val rootObjectPath = NodePathWithPredicates.parse(ns.asScala.toMap, rootObject.getPath)
     if(rootObjectPath.asNodePath == path) {
       nodePathAndPredicatesMatch(currentNode)(rootObjectPath)
     } else {
@@ -784,7 +784,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       } else {
         "/"
       }
-      NodePathWithPredicates(ns.asScala.toMap, rootObjectPath + sep + elemOrAttrPath)
+      NodePathWithPredicates.parse(ns.asScala.toMap, rootObjectPath + sep + elemOrAttrPath)
     }
 
     // find any PartialRootObjects which *may* have objects or attributes that match this element or attribute
