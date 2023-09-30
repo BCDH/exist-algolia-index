@@ -1,13 +1,8 @@
 package org.humanistika.exist.index.algolia
 
 import Serializer.{serializeElementForAttribute, serializeElementForObject}
-import DOMHelper._
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
-
-import cats.effect.{IO, Resource}
-import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
-import cats.syntax.either._
 import javax.xml.parsers.DocumentBuilderFactory
 import org.specs2.Specification
 import org.w3c.dom.{Document, Element, Node}
@@ -84,16 +79,9 @@ class SerializerSpec extends Specification { def is = s2"""
   private lazy val documentBuilderFactory = DocumentBuilderFactory.newInstance()
   private def dom(xml: String) : Document = {
     val documentBuilder = documentBuilderFactory.newDocumentBuilder()
-    Resource.fromAutoCloseable(IO {new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))}).use { is =>
-      IO {
+    With(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { is =>
         documentBuilder.parse(is)
-      }
-    }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
-      case Right(s) =>
-        s
-      case Left(t) =>
-        throw t
-    }
+    }.get
   }
 
   private def elem(node: Node, name: String) : Element = {
