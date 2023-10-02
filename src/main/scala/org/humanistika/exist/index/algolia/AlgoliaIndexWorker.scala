@@ -29,9 +29,8 @@ import org.exist.xquery.XQueryContext
 import org.exist_db.collection_config._1.Algolia
 import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
-import akka.actor.{ActorPath, ActorRef, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem}
 import org.apache.logging.log4j.{LogManager, Logger}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.RemoveForCollection
 
 import scala.collection.JavaConverters._

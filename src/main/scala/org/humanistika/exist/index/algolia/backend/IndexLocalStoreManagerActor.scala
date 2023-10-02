@@ -36,8 +36,6 @@ import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUF
 import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
-import cats.effect.{IO, Resource}
-import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 import cats.syntax.either._
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
@@ -179,23 +177,13 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
           this.perDocumentActors = Map.empty
 
           // find the latest timestamp dir for each document id
-          val fileIO = Resource.fromAutoCloseable(IO { Files.list(localIndexStoreDir)}).use { indexDirStream =>
-            IO {
+          val latestTimestampDirs: Seq[Path] = With(Files.list(localIndexStoreDir)) { indexDirStream =>
               indexDirStream
                 .filter(Files.isDirectory(_))
                 .collect(Collectors.toList())
                 .asScala
                 .map(getLatestTimestampDir(_, None))
-            }
-          }
-          val latestTimestampDirs: Seq[Path] = fileIO
-            .redeem(_.asLeft, _.asRight)
-            .unsafeRunSync() match {
-            case Right(timestampDirs) =>
-              timestampDirs.flatten
-            case Left(t) =>
-              throw t //TODO(AR) better error messages
-          }
+          }.get.flatten
 
           //delete any rootObjects from the latest timestamps which match the collection path tree
           val rootObjectsInCollectionTree = latestTimestampDirs.map(rootObjectsByCollectionTree(_, collectionPath)).flatten
@@ -225,20 +213,9 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
   }
 
   private def isEmpty(dir: Path) : Boolean = {
-    val fileIO = Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
-      IO {
+    With(Files.list(dir)) { stream =>
         !stream.findFirst().isPresent
-      }
-    }
-
-    fileIO
-        .redeem(_.asLeft, _.asRight)
-        .unsafeRunSync() match {
-      case Right(result) =>
-        result
-      case Left(t) =>
-        throw t //TODO(AR) better error messsages
-    }
+    }.get
   }
 
   /**
@@ -253,24 +230,14 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       rootObjectCollectionPath.exists(_.startsWith(collectionPath))
     }
 
-    val fileIO = Resource.fromAutoCloseable(IO { Files.list(timestampDir)}).use { timestampDirStream =>
-      IO {
-        timestampDirStream
-          .filter(Files.isRegularFile(_))
-          .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
-          .filter(matchesCollectionPathRoot)
-          .collect(Collectors.toList())
-          .asScala
-      }
-    }
-
-    fileIO
-      .redeem(_.asLeft, _.asRight)
-      .unsafeRunSync() match {
-      case Right(rootObjectsMatchingCollection) =>
-        rootObjectsMatchingCollection
-      case Left(t) => throw t //TODO(AR) better error messages
-    }
+    With(Files.list(timestampDir)) { timestampDirStream =>
+      timestampDirStream
+        .filter(Files.isRegularFile(_))
+        .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
+        .filter(matchesCollectionPathRoot)
+        .collect(Collectors.toList())
+        .asScala
+    }.get
   }
 
   private def getOrCreatePerDocumentActor(documentId: DocumentId) : ActorRef = perDocumentActors.getOrElse(documentId, createPerDocumentActor(documentId))
@@ -299,26 +266,14 @@ object IndexLocalStoreDocumentActor {
   def getLatestTimestampDir(dir: Path, lt: Option[Timestamp] = None): Option[Path] = {
     def timestampFromPath(p: Path): Timestamp = p.getFileName.toString.toLong
 
-    val fileIO = Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
-      IO {
-        stream
-          .filter(Files.isDirectory(_))
-          .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
-          .collect(Collectors.toList()).asScala
-      }
-    }
-
-    fileIO
-      .redeem(_.asLeft, _.asRight)
-      .unsafeRunSync() match {
-      case Right(prevTimestamps) =>
-        prevTimestamps
-          .sortWith{ case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2)}
-          .headOption
-
-      case Left(t) =>
-        throw t  //TODO(AR) better error reporting
-    }
+    With(Files.list(dir)) { stream =>
+      stream
+        .filter(Files.isDirectory(_))
+        .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
+        .collect(Collectors.toList()).asScala
+    }.get
+      .sortWith { case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2) }
+      .headOption
   }
 }
 
@@ -341,16 +296,14 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       val nodeIdFilename = filenameUsableNodeId(indexableRootObject.userSpecifiedNodeId, indexableRootObject.nodeId)
       val file = dir.resolve(s"${nodeIdFilename}.$FILE_SUFFIX")
 
-      Resource.fromAutoCloseable(IO {Files.newBufferedWriter(file)}).use { writer =>
-        IO {
+      With(Files.newBufferedWriter(file)) { writer =>
           writer.write(serializeJson(indexableRootObject))
-        }
-      }.redeem(_.asLeft, _.asRight).unsafeRunSync() match {
-        case Right(_) =>
-          if(logger.isTraceEnabled) {
+      } match {
+        case Success(_) =>
+          if (logger.isTraceEnabled) {
             logger.trace(s"Stored JSON rootObject '${file}' for (collectionPath=${indexableRootObject.collectionPath}, docId=${indexableRootObject.documentId}, userSpecificDocId=${indexableRootObject.userSpecifiedDocumentId}, nodeId=${indexableRootObject.nodeId}, userSpecificNodeId=${indexableRootObject.userSpecifiedNodeId}): ${indexDir.getFileName}")
           }
-        case Left(t) => throw t    //TODO(AR) do some better error handling
+        case Failure(t) => throw t    //TODO(AR) do some better error handling
       }
 
     case FindChanges(timestamp, userSpecifiedDocumentId, documentId) =>
@@ -473,14 +426,11 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   }
 
   private def listFiles(dir: Path) : Either[Seq[Throwable], Seq[Path]] = {
-    Resource.fromAutoCloseable(IO { Files.list(dir)}).use { stream =>
-      IO {
-        stream
-          .filter(Files.isRegularFile(_))
-          .collect(Collectors.toList()).asScala
-      }
-    }.redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
-      .unsafeRunSync()
+    With(Files.list(dir)) { stream =>
+      stream
+        .filter(Files.isRegularFile(_))
+        .collect(Collectors.toList()).asScala
+    }.toEither.leftMap(Seq(_))
   }
 
   private def findPreviousDir(timestampDir: Path): Option[Path] = {
@@ -501,21 +451,10 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   private def filenameUsableNodeId(userSpecifiedNodeId: Option[String], nodeId: Option[String]) = userSpecifiedNodeId.map(base32Encode).getOrElse(nodeId.getOrElse(DOCUMENT_NODE_ID))
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
-    val serializeIO = Resource.fromAutoCloseable(IO { new StringWriter()}).use { writer =>
-      IO {
+    With(new StringWriter()) { writer =>
         mapper.writeValue(writer, indexableRootObject)
         writer.toString
-      }
-    }
-
-    serializeIO
-      .redeem(_.asLeft, _.asRight)
-      .unsafeRunSync() match {
-      case  Right(result) =>
-        result
-      case Left(t) =>
-        throw t
-    }
+    }.get
   }
 
   private def checksum(file: Path): Either[Throwable, Array[Byte]] = Checksum.checksum(file, Checksum.MD5)

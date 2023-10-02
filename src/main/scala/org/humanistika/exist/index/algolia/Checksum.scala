@@ -21,9 +21,6 @@ import java.io.InputStream
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
 
-import cats.effect.{IO, Resource}
-import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
-
 import scala.annotation.tailrec
 
 /**
@@ -66,18 +63,12 @@ object Checksum {
       digest.digest()
     }
 
-    val checksumIO = Resource.make(IO { Files.newInputStream(file) })(is => IO { is.close() }).use { is =>
-      getHash(algorithm).flatMap { digest =>
-        // 16 KB buffer
-        IO.pure(Array.ofDim[Byte](bufferSize)).flatMap { buf =>
-          IO { digestStream(is, buf, digest) }
-        }
-      }
-    }
-
-    checksumIO
-      .attempt
-      .unsafeRunSync()
+    With(Files.newInputStream(file)) { is =>
+      val digest = getHash(algorithm)
+      // 16 KB buffer
+      val buf = Array.ofDim[Byte](bufferSize)
+      digestStream(is, buf, digest)
+    }.toEither
   }
 
   /**
@@ -87,24 +78,22 @@ object Checksum {
     *
     * @return the message digest
     */
-  private def getHash(algorithm: Algorithm) : IO[MessageDigest] = {
-    IO {
-      algorithm match {
-        case MD2 =>
-          MessageDigest.getInstance("MD2")
-        case MD5 =>
-          MessageDigest.getInstance("MD5")
-        case SHA1 =>
-          MessageDigest.getInstance("SHA-1")
-        case SHA256 =>
-          MessageDigest.getInstance("SHA-256")
-        case SHA384 =>
-          MessageDigest.getInstance("SHA-384")
-        case SHA512 =>
-          MessageDigest.getInstance("SHA-512")
-        case _ =>
-          throw new UnsupportedOperationException(s"Support for $algorithm not yet implemented.")
-      }
+  private def getHash(algorithm: Algorithm) : MessageDigest = {
+    algorithm match {
+      case MD2 =>
+        MessageDigest.getInstance("MD2")
+      case MD5 =>
+        MessageDigest.getInstance("MD5")
+      case SHA1 =>
+        MessageDigest.getInstance("SHA-1")
+      case SHA256 =>
+        MessageDigest.getInstance("SHA-256")
+      case SHA384 =>
+        MessageDigest.getInstance("SHA-384")
+      case SHA512 =>
+        MessageDigest.getInstance("SHA-512")
+      case _ =>
+        throw new UnsupportedOperationException(s"Support for $algorithm not yet implemented.")
     }
   }
 }

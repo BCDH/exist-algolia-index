@@ -29,8 +29,6 @@ import org.exist.util.serializer.{SAXSerializer, SerializerPool}
 import org.humanistika.exist.index.algolia.JsonUtil.writeValueField
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig
 import org.w3c.dom.{Attr, Element, NamedNodeMap, Node, NodeList, Text}
-import cats.effect.{IO, Resource}
-import cats.effect.unsafe.implicits.global    // TODO(AR) switch to using cats.effect.IOApp
 import cats.syntax.either._
 
 object Serializer {
@@ -123,44 +121,38 @@ object Serializer {
       }
     }
 
-    val jsonIO: IO[String] = Resource.fromAutoCloseable(IO { new StringWriter() }).use { writer =>
-      Resource.fromAutoCloseable(IO { new JsonFactory().createGenerator(writer) }).use { gen =>
-        IO {
-          val childNodes = element.getChildNodes
-          if (hasOnlyTextChildren(childNodes)) {
+    With(new StringWriter()) { writer =>
+      With(new JsonFactory().createGenerator(writer)) { gen =>
+        val childNodes = element.getChildNodes
+        if (hasOnlyTextChildren(childNodes)) {
+
+          // needed so Jackson's JSON Generator won't complain
+          gen.writeStartObject()
+
+          gen.writeRaw(',')
+
+          serializeAttributes(gen)(element.getAttributes)
+          if (childNodes.getLength > 0) {
+            serializeTextNodes(gen)(childNodes)
+          }
+
+          // needed so Jackson's JSON Generator won't complain
+          gen.writeEndObject()
+        } else {
+          serialize(element).map { elementGenerator =>
 
             // needed so Jackson's JSON Generator won't complain
             gen.writeStartObject()
 
-            gen.writeRaw(',')
-
-            serializeAttributes(gen)(element.getAttributes)
-            if (childNodes.getLength > 0) {
-              serializeTextNodes(gen)(childNodes)
-            }
+            elementGenerator(gen)
 
             // needed so Jackson's JSON Generator won't complain
             gen.writeEndObject()
-          } else {
-            serialize(element).map { elementGenerator =>
-
-              // needed so Jackson's JSON Generator won't complain
-              gen.writeStartObject()
-
-              elementGenerator(gen)
-
-              // needed so Jackson's JSON Generator won't complain
-              gen.writeEndObject()
-            }
           }
         }
       }.map(_ => stripStartObjectEndObject(writer.toString))  // strip the extras we added for the JSON generator (so it won't complain)
     }
-
-    jsonIO
-        .redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
-        .unsafeRunSync()
-  }
+  }.flatten.toEither.leftMap(Seq(_))
 
   def serializeAsText(node: Node): Either[Seq[Throwable], String] = {
     val properties = new Properties()
@@ -226,22 +218,15 @@ object Serializer {
   }
 
   def serialize(node: Node, properties: Properties): Either[Seq[Throwable], String] = {
+    With(serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer])(serializer => serializerPool.returnObject(serializer)) { serializer =>
+      With(new StringWriter()) { writer =>
+        serializer.setOutput(writer, properties)
 
-    val serializationIO = Resource.make(IO {serializerPool.borrowObject(classOf[SAXSerializer]).asInstanceOf[SAXSerializer]})(serializer => IO {serializerPool.returnObject()}).use { serializer =>
-      Resource.fromAutoCloseable(IO {new StringWriter()}).use { writer =>
-        IO {
-            serializer.setOutput(writer, properties)
-
-            val transformer = transformerFactory.newTransformer()
-            val result = new SAXResult(serializer)
-            transformer.transform(new DOMSource(node), result)
-            writer.toString
-        }
+        val transformer = transformerFactory.newTransformer()
+        val result = new SAXResult(serializer)
+        transformer.transform(new DOMSource(node), result)
+        writer.toString
       }
-    }
-
-    serializationIO
-      .redeem(_.asLeft.leftMap(Seq(_)), _.asRight)
-      .unsafeRunSync()
+    }.flatten.toEither.leftMap(Seq(_))
   }
 }
