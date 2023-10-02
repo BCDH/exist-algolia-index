@@ -1,5 +1,5 @@
-# еХist Indexer for Algolia
-![Build Status](https://github.com/BCDH/exist-algolia-index/actions/workflows/ci.yml/badge.svg) [![Scala 2.12+](https://img.shields.io/badge/scala-2.12+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/humanistika/exist/index/algolia/exist-algolia-index_2.12/1.0/exist-algolia-index_2.12-1.0-assembly.jar)
+# eXist-db Indexer for Algolia
+![Build Status](https://github.com/BCDH/exist-algolia-index/actions/workflows/ci.yml/badge.svg) [![Scala 2.13+](https://img.shields.io/badge/scala-2.13+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/humanistika/exist/index/algolia/exist-algolia-index_2.13/1.0/exist-algolia-index_2.13-1.0-assembly.jar)
 
 
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
@@ -19,7 +19,7 @@ It's probably a good idea to start with a clean database, which means a complete
 
 - Make sure eXist is not running
 
-- Place the jar file named like `exist-algolia-index-assembly-2.12_1.0.jar` into eXist's `lib/user`.
+- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.0.jar` into eXist's `lib/user`.
 
 - Modify eXist's `conf.xml` file by adding the following line to the `indexer/modules` section:
 
@@ -133,7 +133,7 @@ $ cd exist-algolia-index
 $ sbt assembly
 ```
 
-The assembled binary can then be found is in the folder `target/scala-2.12`.
+The assembled binary can then be found is in the folder `target/scala-2.13`.
 
 
 ## Acknowledgements

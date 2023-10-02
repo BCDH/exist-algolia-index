@@ -6,6 +6,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.{Attr, Document, Element, Node}
 
 import scala.annotation.tailrec
+import scala.util.Using
 
 object DOMHelper {
 
@@ -14,7 +15,7 @@ object DOMHelper {
   def dom(xml: String) : Document = {
     val documentBuilder = documentBuilderFactory.newDocumentBuilder()
 
-    With(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { is =>
+    Using(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { is =>
         documentBuilder.parse(is)
     }.get
   }

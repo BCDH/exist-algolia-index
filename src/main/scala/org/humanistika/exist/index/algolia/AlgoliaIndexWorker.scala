@@ -136,7 +136,8 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
       }
   }
 
-  override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]
+  //override def getReindexRoot[T <: IStoredNode[_]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]
+  override def getReindexRoot[T <: IStoredNode[_ <: IStoredNode[_ <: AnyRef]]](node: IStoredNode[T], nodePath: NodePath, insert: Boolean, includeSelf: Boolean): IStoredNode[_ <: IStoredNode[_ <: AnyRef]] = node.getOwnerDocument.getDocumentElement.asInstanceOf[ElementImpl]
 
   override def getIndexId: String = AlgoliaIndex.ID
 

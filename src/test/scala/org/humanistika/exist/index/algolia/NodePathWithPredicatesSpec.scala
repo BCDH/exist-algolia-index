@@ -50,67 +50,67 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   )
 
   def e1 = {
-    val npwp = NodePathWithPredicates(namespaces, "@something")
+    val npwp = NodePathWithPredicates.parse(namespaces, "@something")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ATTRIBUTE)))
   }
 
   def e2 = {
-    val npwp = NodePathWithPredicates(namespaces, "something")
+    val npwp = NodePathWithPredicates.parse(namespaces, "something")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ELEMENT)))
   }
 
   def e3 = {
-    val npwp = NodePathWithPredicates(namespaces, "@unk:blah")
+    val npwp = NodePathWithPredicates.parse(namespaces, "@unk:blah")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName(UNK_NS, "blah", UNK_PREFIX), ComponentType.ATTRIBUTE)))
   }
 
   def e4 = {
-    val npwp = NodePathWithPredicates(namespaces, "tei:form")
+    val npwp = NodePathWithPredicates.parse(namespaces, "tei:form")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName(TEI_NS, "form", TEI_PREFIX), ComponentType.ELEMENT)))
   }
 
   def e5 = {
-    val npwp = NodePathWithPredicates(namespaces, "/@something")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/@something")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ATTRIBUTE)))
   }
 
   def e6 = {
-    val npwp = NodePathWithPredicates(namespaces, "/something")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/something")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ELEMENT)))
   }
 
   def e7 = {
-    val npwp = NodePathWithPredicates(namespaces, "/@unk:blah")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/@unk:blah")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName(UNK_NS, "blah", UNK_PREFIX), ComponentType.ATTRIBUTE)))
   }
 
   def e8 = {
-    val npwp = NodePathWithPredicates(namespaces, "/tei:form")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/tei:form")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName(TEI_NS, "form", TEI_PREFIX), ComponentType.ELEMENT)))
   }
 
   def e9 = {
-    val npwp = NodePathWithPredicates(namespaces, "*")
+    val npwp = NodePathWithPredicates.parse(namespaces, "*")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("*"), ComponentType.ANY)))
   }
 
   def e10 = {
-    val npwp = NodePathWithPredicates(namespaces, "/*")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/*")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("*"), ComponentType.ANY)))
   }
 
   def e11 = {
-    val npwp = NodePathWithPredicates(namespaces, "/x/y/z/@other")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/x/y/z/@other")
     npwp.size must beEqualTo(4)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("x"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("y"), ComponentType.ELEMENT)))
@@ -119,7 +119,7 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e12 = {
-    val npwp = NodePathWithPredicates(namespaces, "/unk:x/unk:y/unk:z/@tei:form")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/unk:x/unk:y/unk:z/@tei:form")
     npwp.size must beEqualTo(4)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName(UNK_NS, "x", UNK_PREFIX), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName(UNK_NS, "y", UNK_PREFIX), ComponentType.ELEMENT)))
@@ -128,21 +128,21 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e13 = {
-    val npwp = NodePathWithPredicates(namespaces, "//@deep")
+    val npwp = NodePathWithPredicates.parse(namespaces, "//@deep")
     npwp.size must beEqualTo(2)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("//"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("deep"), ComponentType.ATTRIBUTE)))
   }
 
   def e14 = {
-    val npwp = NodePathWithPredicates(namespaces, "//deep")
+    val npwp = NodePathWithPredicates.parse(namespaces, "//deep")
     npwp.size must beEqualTo(2)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("//"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("deep"), ComponentType.ELEMENT)))
   }
 
   def e15 = {
-    val npwp = NodePathWithPredicates(namespaces, "//deep1//deep2")
+    val npwp = NodePathWithPredicates.parse(namespaces, "//deep1//deep2")
     npwp.size must beEqualTo(4)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("//"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("deep1"), ComponentType.ELEMENT)))
@@ -151,7 +151,7 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e16 = {
-    val npwp = NodePathWithPredicates(namespaces, "//deep1/shallow//deep2")
+    val npwp = NodePathWithPredicates.parse(namespaces, "//deep1/shallow//deep2")
     npwp.size must beEqualTo(5)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("//"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("deep1"), ComponentType.ELEMENT)))
@@ -161,7 +161,7 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e17 = {
-    val npwp = NodePathWithPredicates(namespaces, "/shallow//deep")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/shallow//deep")
     npwp.size must beEqualTo(3)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("shallow"), ComponentType.ELEMENT)))
     npwp.get(1) must beEqualTo(Component(TypedQName(new QName("//"), ComponentType.ELEMENT)))
@@ -169,11 +169,11 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e18 = {
-    NodePathWithPredicates(namespaces, "@something[@x eq 'y']") must throwA[IllegalArgumentException]
+    NodePathWithPredicates.parse(namespaces, "@something[@x eq 'y']") must throwA[IllegalArgumentException]
   }
 
   def e19 = {
-    val npwp = NodePathWithPredicates(namespaces, "something[@x ne 'y']")
+    val npwp = NodePathWithPredicates.parse(namespaces, "something[@x ne 'y']")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ELEMENT), Seq(
       Predicate(TypedQName(new QName("x"), ComponentType.ATTRIBUTE), AtomicNotEqualsComparison, Seq("y"))
@@ -181,11 +181,11 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e20 = {
-    NodePathWithPredicates(namespaces, "/@something[@a eq 'b']") must throwA[IllegalArgumentException]
+    NodePathWithPredicates.parse(namespaces, "/@something[@a eq 'b']") must throwA[IllegalArgumentException]
   }
 
   def e21 = {
-    val npwp = NodePathWithPredicates(namespaces, "/something[@a ne 'b']")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/something[@a ne 'b']")
     npwp.size must beEqualTo(1)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("something"), ComponentType.ELEMENT), Seq(
       Predicate(TypedQName(new QName("a"), ComponentType.ATTRIBUTE), AtomicNotEqualsComparison, Seq("b"))
@@ -193,7 +193,7 @@ class NodePathWithPredicatesSpec extends Specification { def is = s2""" {
   }
 
   def e22 = {
-    val npwp = NodePathWithPredicates(namespaces, "/x[@a eq '1']/y[@b ne '2'][@c = '3']/z/@other")
+    val npwp = NodePathWithPredicates.parse(namespaces, "/x[@a eq '1']/y[@b ne '2'][@c = '3']/z/@other")
     npwp.size must beEqualTo(4)
     npwp.get(0) must beEqualTo(Component(TypedQName(new QName("x"), ComponentType.ELEMENT), Seq(
       Predicate(TypedQName(new QName("a"), ComponentType.ATTRIBUTE), AtomicEqualsComparison, Seq("1"))

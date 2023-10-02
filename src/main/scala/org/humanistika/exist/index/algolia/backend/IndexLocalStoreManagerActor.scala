@@ -20,7 +20,6 @@ package org.humanistika.exist.index.algolia.backend
 import java.io.StringWriter
 import java.nio.file.{Files, Path}
 import java.util.stream.Collectors
-
 import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.gracefulStop
 
@@ -35,7 +34,7 @@ import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUF
 
 import scala.collection.JavaConverters._
 import scala.concurrent.{Await, Future}
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success, Try, Using}
 import cats.syntax.either._
 import grizzled.slf4j.Logger
 import org.apache.commons.codec.binary.Base32
@@ -169,19 +168,19 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       //stop the perDocumentActors, we want exclusive access
       val stopped: Iterable[Future[(DocumentId, Boolean)]] =
         for((documentId, perDocumentActor) <- perDocumentActors)
-          yield gracefulStop(perDocumentActor, 2 minutes).map((documentId, _))
+          yield gracefulStop(perDocumentActor, 2.minutes).map((documentId, _))
 
-      Try(Await.result(Future.sequence(stopped), 5 minutes)) match {
+      Try(Await.result(Future.sequence(stopped), 5.minutes)) match {
         case Success(stoppedPerDocumentActors) if !stoppedPerDocumentActors.exists(!_._2) =>
           // all perDocuemntActors were gracefully stopped
           this.perDocumentActors = Map.empty
 
           // find the latest timestamp dir for each document id
-          val latestTimestampDirs: Seq[Path] = With(Files.list(localIndexStoreDir)) { indexDirStream =>
+          val latestTimestampDirs: Seq[Path] = Using(Files.list(localIndexStoreDir)) { indexDirStream =>
               indexDirStream
                 .filter(Files.isDirectory(_))
                 .collect(Collectors.toList())
-                .asScala
+                .asScala.toSeq
                 .map(getLatestTimestampDir(_, None))
           }.get.flatten
 
@@ -213,7 +212,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
   }
 
   private def isEmpty(dir: Path) : Boolean = {
-    With(Files.list(dir)) { stream =>
+    Using(Files.list(dir)) { stream =>
         !stream.findFirst().isPresent
     }.get
   }
@@ -230,13 +229,13 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       rootObjectCollectionPath.exists(_.startsWith(collectionPath))
     }
 
-    With(Files.list(timestampDir)) { timestampDirStream =>
+    Using(Files.list(timestampDir)) { timestampDirStream =>
       timestampDirStream
         .filter(Files.isRegularFile(_))
         .filter(FileUtils.fileName(_).endsWith(s".$FILE_SUFFIX"))
         .filter(matchesCollectionPathRoot)
         .collect(Collectors.toList())
-        .asScala
+        .asScala.toSeq
     }.get
   }
 
@@ -266,11 +265,12 @@ object IndexLocalStoreDocumentActor {
   def getLatestTimestampDir(dir: Path, lt: Option[Timestamp] = None): Option[Path] = {
     def timestampFromPath(p: Path): Timestamp = p.getFileName.toString.toLong
 
-    With(Files.list(dir)) { stream =>
+    Using(Files.list(dir)) { stream =>
       stream
         .filter(Files.isDirectory(_))
         .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
-        .collect(Collectors.toList()).asScala
+        .collect(Collectors.toList())
+        .asScala
     }.get
       .sortWith { case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2) }
       .headOption
@@ -296,7 +296,7 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       val nodeIdFilename = filenameUsableNodeId(indexableRootObject.userSpecifiedNodeId, indexableRootObject.nodeId)
       val file = dir.resolve(s"${nodeIdFilename}.$FILE_SUFFIX")
 
-      With(Files.newBufferedWriter(file)) { writer =>
+      Using(Files.newBufferedWriter(file)) { writer =>
           writer.write(serializeJson(indexableRootObject))
       } match {
         case Success(_) =>
@@ -426,10 +426,11 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   }
 
   private def listFiles(dir: Path) : Either[Seq[Throwable], Seq[Path]] = {
-    With(Files.list(dir)) { stream =>
+    Using(Files.list(dir)) { stream =>
       stream
         .filter(Files.isRegularFile(_))
-        .collect(Collectors.toList()).asScala
+        .collect(Collectors.toList())
+        .asScala.toSeq
     }.toEither.leftMap(Seq(_))
   }
 
@@ -451,7 +452,7 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   private def filenameUsableNodeId(userSpecifiedNodeId: Option[String], nodeId: Option[String]) = userSpecifiedNodeId.map(base32Encode).getOrElse(nodeId.getOrElse(DOCUMENT_NODE_ID))
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
-    With(new StringWriter()) { writer =>
+    Using(new StringWriter()) { writer =>
         mapper.writeValue(writer, indexableRootObject)
         writer.toString
     }.get

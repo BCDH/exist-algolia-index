@@ -1,11 +1,14 @@
 package org.humanistika.exist.index.algolia
 
 import Serializer.{serializeElementForAttribute, serializeElementForObject}
+
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import javax.xml.parsers.DocumentBuilderFactory
 import org.specs2.Specification
 import org.w3c.dom.{Document, Element, Node}
+
+import scala.util.Using
 
 class SerializerSpec extends Specification { def is = s2"""
     This is a specification to check the JSON Serialization of XML nodes
@@ -79,7 +82,7 @@ class SerializerSpec extends Specification { def is = s2"""
   private lazy val documentBuilderFactory = DocumentBuilderFactory.newInstance()
   private def dom(xml: String) : Document = {
     val documentBuilder = documentBuilderFactory.newDocumentBuilder()
-    With(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { is =>
+    Using(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { is =>
         documentBuilder.parse(is)
     }.get
   }

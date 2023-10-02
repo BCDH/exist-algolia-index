@@ -211,7 +211,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   def configure(config: Algolia) {
     this.ns.clear()
     getNamespaceMappings(config).foreach { case (k, v) => ns.put(k, v) }
-    this.rootObjectConfigs = config.getIndex.asScala.flatMap(index => index.getRootObject.asScala.map(rootObject => (index.getName, rootObject)))
+    this.rootObjectConfigs = config.getIndex.asScala.toSeq.flatMap(index => index.getRootObject.asScala.toSeq.map(rootObject => (index.getName, rootObject)))
     this.indexConfigs = config.getIndex.asScala.map(index => index.getName -> index).toMap
   }
 
@@ -424,10 +424,10 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
         .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentIdOrWarn(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeIdOrWarn(partialRootObject.indexName, pathClone))))
 
       // finished... so remove them from the map of things we are processing
-      this.processing = processing.filterKeys(_ != pathClone)
+      this.processing = processing.view.filterKeys(_ != pathClone).toMap
 
       val indexNames = elementRootObjects.map(partialRootObject => partialRootObject.indexName)
-      this.userSpecifiedNodeIds = this.userSpecifiedNodeIds.filterKeys{ case (indexName, nodePath) => !(indexNames.contains(indexName) && nodePath.dropLastNew() == pathClone) }
+      this.userSpecifiedNodeIds = this.userSpecifiedNodeIds.view.filterKeys{ case (indexName, nodePath) => !(indexNames.contains(indexName) && nodePath.dropLastNew() == pathClone) }.toMap
     }
   }
 
@@ -490,7 +490,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private def isElementRootObject(currentNode: ElementImpl, path: NodePath)(rootObject: RootObject): Boolean = {
     // nodePath(ns, rootObject.getPath) == path
 
-    val rootObjectPath = NodePathWithPredicates(ns.asScala.toMap, rootObject.getPath)
+    val rootObjectPath = NodePathWithPredicates.parse(ns.asScala.toMap, rootObject.getPath)
     if(rootObjectPath.asNodePath == path) {
       nodePathAndPredicatesMatch(currentNode)(rootObjectPath)
     } else {
@@ -500,7 +500,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
   // returns a rootObject only if the predicates on its nodePath hold
   private def nodePathAndPredicatesMatch(currentNode: NamedNode[_])(npwp: NodePathWithPredicates): Boolean = {
-    val contextElements: scala.collection.immutable.List[ContextElement] = context.asScala.toList.reverse
+    val contextElements: Seq[ContextElement] = context.asScala.toSeq.reverse
 
     //is the npwp a path to an attribute?
     val lastNpwpComponent = npwp.get(npwp.size - 1)
@@ -784,7 +784,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
       } else {
         "/"
       }
-      NodePathWithPredicates(ns.asScala.toMap, rootObjectPath + sep + elemOrAttrPath)
+      NodePathWithPredicates.parse(ns.asScala.toMap, rootObjectPath + sep + elemOrAttrPath)
     }
 
     // find any PartialRootObjects which *may* have objects or attributes that match this element or attribute
@@ -799,11 +799,11 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
       //TODO(AR) filters for attributesConfig and objectsConfig need to check nodePathsWithPredicates
 
-      val attributesConfig = partialRootObject.config.getAttribute.asScala
+      val attributesConfig = partialRootObject.config.getAttribute.asScala.toSeq
           .filter(attrConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, fixXjcAttrOutput(attrConf.getPath))))
       val attributes: Seq[IndexableAttribute] = attributesConfig.map(attrConfig => IndexableAttribute(attrConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node, serializeElementForAttribute))), typeOrDefault(attrConfig.getType)))
 
-      val objectsConfig = partialRootObject.config.getObject.asScala
+      val objectsConfig = partialRootObject.config.getObject.asScala.toSeq
         .filter(objConf => nodePathAndPredicatesMatch(asNamedNode(node))(asNodePathWithPredicates(partialRootObject.config.getPath, objConf.getPath)))
       val objects: Seq[IndexableObject] = objectsConfig.map(objectConfig => IndexableObject(objectConfig.getName, Seq(IndexableValue(nodeIdStr(node), toInMemory(node, serializeElementForObject(objectConfig.getName, toScalaProperties(Option(objectConfig.getSerializer).flatMap(s => Option(s.getProperties))), getObjectMappings(objectConfig)))))))
 
@@ -825,7 +825,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   // see http://stackoverflow.com/questions/42656550/xjc-generating-wrong-liststring-for-xmlattribute
   private def fixXjcAttrOutput(attrList : java.util.List[String]) = attrList.asScala.mkString(" ")
 
-  private def getObjectMappings(objectConfig: org.exist_db.collection_config._1.Object): Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[Name])] = objectConfig.getMapping.asScala.map(mapping => nodePath(ns, fixXjcAttrOutput(mapping.getPath)) -> (typeOrDefault(mapping.getType), Option(mapping.getName))).toMap
+  private def getObjectMappings(objectConfig: org.exist_db.collection_config._1.Object): Map[NodePath, (LiteralTypeConfig.LiteralTypeConfig, Option[String])] = objectConfig.getMapping.asScala.map(mapping => nodePath(ns, fixXjcAttrOutput(mapping.getPath)) -> (typeOrDefault(mapping.getType), Option(mapping.getName))).toMap
 
   private def getRootObjectConfigs(filter: RootObject => Boolean): Seq[(IndexName, RootObject)] = rootObjectConfigs.filter { case (_, rootObject) => filter(rootObject) }
 
