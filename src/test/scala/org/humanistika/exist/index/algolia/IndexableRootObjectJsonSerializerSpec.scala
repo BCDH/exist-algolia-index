@@ -1,13 +1,15 @@
 package org.humanistika.exist.index.algolia
 
 import DOMHelper._
-import java.io.StringWriter
 
+import java.io.StringWriter
 import javax.xml.namespace.QName
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.humanistika.exist.index.algolia.Serializer.{serializeElementForAttribute, serializeElementForObject}
 import org.specs2.Specification
 import cats.syntax.either._
+
+import scala.util.Using
 
 class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"""
   This is a specification to check the JSON Serialization of IndexableRootObject
@@ -315,7 +317,7 @@ class IndexableRootObjectJsonSerializerSpec extends Specification { def is = s2"
   }
 
   private def serializeJson(indexableRootObject: IndexableRootObject): String = {
-    With(new StringWriter()) { writer =>
+    Using(new StringWriter()) { writer =>
         val mapper = new ObjectMapper
         mapper.writeValue(writer, indexableRootObject)
         writer.toString

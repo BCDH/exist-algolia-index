@@ -20,8 +20,8 @@ package org.humanistika.exist.index.algolia
 import java.io.InputStream
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
-
 import scala.annotation.tailrec
+import scala.util.Using
 
 /**
   * Checksum operations.
@@ -63,7 +63,7 @@ object Checksum {
       digest.digest()
     }
 
-    With(Files.newInputStream(file)) { is =>
+    Using(Files.newInputStream(file)) { is =>
       val digest = getHash(algorithm)
       // 16 KB buffer
       val buf = Array.ofDim[Byte](bufferSize)
