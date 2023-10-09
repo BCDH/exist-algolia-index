@@ -26,6 +26,11 @@ lazy val root = Project("exist-algolia-index", file("."))
       )
     ),
     headerLicense := Some(HeaderLicense.GPLv3("2016", "Belgrade Center for Digital Humanities")),
+    xjcLibs := Seq(
+          "org.glassfish.jaxb" % "jaxb-xjc"           % "2.3.8",
+          "com.sun.xml.bind"   % "jaxb-impl"          % "2.3.8",
+          "com.sun.activation" % "jakarta.activation" % "1.2.2"
+    ),
     libraryDependencies ++= {
 
   val catsCoreV = "2.10.0"
@@ -40,11 +45,14 @@ lazy val root = Project("exist-algolia-index", file("."))
 
         "org.parboiled" %% "parboiled" % "2.5.0",
 
+        "javax.xml.bind" % "jaxb-api" % "2.3.1",
+
         "org.clapper" %% "grizzled-slf4j" % "1.3.4"
           exclude("org.slf4j", "slf4j-api"),
 
         "org.exist-db" % "exist-core" % existV % Provided
-          exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
+          exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi")
+          exclude("jakarta.xml.bind", "jakarta.xml.bind-api"),
         "net.sf.saxon" % "Saxon-HE" % "9.9.1-8" % Provided,
         "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
         "commons-codec" % "commons-codec" % "1.15" % Provided,
@@ -124,6 +132,7 @@ Compile / assembly / artifact := {
 
 assembly / assemblyMergeStrategy := {
   case PathList("META-INF", "versions", "9", xs @ _*) => MergeStrategy.discard
+  case x if x.endsWith("module-info.class") => MergeStrategy.discard
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)
