@@ -34,7 +34,7 @@ lazy val root = Project("exist-algolia-index", file("."))
     libraryDependencies ++= {
 
   val catsCoreV = "2.10.0"
-  val existV = "6.2.0"
+  val existV = "6.3.0-SNAPSHOT"
   val algoliaV = "2.19.0"
   val akkaV = "2.6.20"
   val jacksonV = "2.13.4"
