@@ -17,7 +17,6 @@
 
 package org.humanistika.exist.index.algolia
 
-import java.io.StringWriter
 import java.util.{ArrayDeque, Deque, HashMap => JHashMap, Map => JMap, Properties => JProperties}
 import javax.xml.namespace.QName
 
@@ -31,15 +30,13 @@ import org.exist_db.collection_config._1.{Algolia, LiteralType, Properties, Root
 import org.exist_db.collection_config._1.LiteralType._
 import Serializer._
 import akka.actor.ActorRef
-import com.fasterxml.jackson.core.{JsonFactory, JsonGenerator}
 import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
 import org.exist.numbering.DLN
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
 import org.w3c.dom._
-import JsonUtil.writeValueField
-import org.exist.util.serializer.SAXSerializer
+
 
 import cats.syntax.either._
 
@@ -158,7 +155,7 @@ object AlgoliaStreamListener {
       .getOrElse(new NodePath())
   }
 
-  case class UserSpecifiedDocumentPathId(path: NodePath, value: Option[UserSpecifiedDocumentId])
+  case class UserSpecifiedOption(path: NodePath, value: Option[String])
 
   case class PartialRootObject(indexName: IndexName, config: RootObject, indexable: IndexableRootObject) {
     def identityEquals(other: PartialRootObject) : Boolean = {
@@ -202,7 +199,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
   private var replacingDocument: Boolean = false
   private var processing: Map[NodePath, Seq[PartialRootObject]] = Map.empty
-  private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedDocumentPathId] = Map.empty
+  private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedOption] = Map.empty
+  private var userSpecifiedVisibleByIds: Map[IndexName, UserSpecifiedOption] = Map.empty
   private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
 
   case class ContextElement(name: QName, attributes: Map[QName, String])
@@ -224,8 +222,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   override def startIndexDocument(transaction: Txn) {
     // find any User Specified Document IDs that we need to complete
     this.userSpecifiedDocumentIds = indexConfigs
-      .map{ case (indexName, index) => indexName -> Option(index.getDocumentId).map(path => UserSpecifiedDocumentPathId(nodePath(ns, path), None)) }
-      .collect{ case (indexName, Some(usdid)) => indexName -> usdid }
+      .map{ case (indexName, index) => Tuple2(indexName , Option(index.getDocumentId).map(path => UserSpecifiedOption(nodePath(ns, path), None))) }
+      .collect{ case (indexName, Some(usdid)) => Tuple2(indexName , usdid) }
+
+    // find any User Specified VisibleBYs that we need to complete
+    this.userSpecifiedVisibleByIds = indexConfigs
+      .map{ case (indexName, index) => Tuple2(indexName , Option(index.getVisibleBy).map(path => UserSpecifiedOption(nodePath(ns, path), None))) }
+      .collect{ case (indexName, Some(usvb)) => Tuple2(indexName , usvb) }
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -242,9 +245,6 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
     // update the current context
     context.push(ContextElement(element.getQName.toJavaQName, Map.empty))
-
-    // update any userSpecifiedDocumentIds which we haven't yet completed and that match this element path
-    updateUserSpecifiedDocumentIds(pathClone, element.asLeft)
 
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -282,6 +282,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     super.attribute(transaction, attrib, pathClone)
   }
 
+
+  override def characters(transaction: Txn, text: AbstractCharacterData, path: NodePath): Unit = {
+    val pathClone = path.duplicate
+    // update any userSpecifiedVisibleIds which we haven't yet completed and that match this element path
+    updateUserSpecifiedVisibleIds(pathClone, text)
+  }
+
   override def endElement(transaction: Txn, element: ElementImpl, path: NodePath) {
     getWorker.getMode() match {
       case ReindexMode.STORE =>
@@ -313,6 +320,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
     // clear any User Specified Document IDs
     this.userSpecifiedDocumentIds = Map.empty
+    this.userSpecifiedVisibleByIds = Map.empty
 
     this.context.clear()
 
@@ -344,6 +352,21 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     }
   }
 
+  private def updateUserSpecifiedVisibleIds(path: NodePath, node: Node): Unit = {
+    for ((indexName, usvb) <- userSpecifiedVisibleByIds if usvb.value.isEmpty && usvb.path.equals(path)) { //TODO(AR) do we need to compare the index name?
+      getStringFromNode(node) match {
+        case Right(idValue) if (!idValue.isEmpty) =>
+          this.userSpecifiedVisibleByIds = userSpecifiedVisibleByIds + (indexName -> usvb.copy(value = Some(idValue)))
+
+        case Right(idValue) if (idValue.isEmpty) =>
+          logger.error(s"UserSpecifiedNodeIds: Unable to use empty string for attribute path=${path}")
+
+        case Left(ts) =>
+          logger.error(s"UserSpecifiedNodeIds: Unable to serialize attribute for path=${path})")
+      }
+    }
+  }
+
   private def updateUserSpecifiedNodeIds(path: NodePath, attrib: AttrImpl): Unit = {
     for (((indexName, nodeIdPath), usnid) <- userSpecifiedNodeIds if usnid.isEmpty && nodeIdPath.equals(path)) {   //TODO(AR) do we need to compare the index name?
       getString(attrib.asRight) match {
@@ -365,7 +388,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private def removeForDocument() = {
     val docId = getWorker.getDocument.getDocId
     for(indexName <- indexConfigs.keys) {
-      incrementalIndexingActor ! RemoveForDocument(indexName, docId, userSpecifiedDocumentIds.get(indexName).flatMap(_.value))
+      incrementalIndexingActor ! RemoveForDocument(indexName, docId, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), userSpecifiedVisibleByIds.get(indexName).flatMap(_.value))
     }
   }
 
@@ -379,7 +402,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     if (documentRootObjects.nonEmpty) {
       // as we are just starting a document,
       // we aren't processing these yet, so let's record them
-      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument.getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, None, Seq.empty)))
+      val processingAtPath = documentRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument.getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, None, None, Seq.empty)))
       this.processing = processing + (DOCUMENT_NODE_PATH -> processingAtPath)
     }
   }
@@ -390,7 +413,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     if (elementRootObjects.nonEmpty) {
 
       // record the new RootObjects that we are processing
-      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, Some(element.getNodeId.toString), None, Seq.empty)))
+      val newElementRootObjects: Seq[PartialRootObject] = elementRootObjects.map(rootObjectConfig => PartialRootObject(rootObjectConfig._1, rootObjectConfig._2, IndexableRootObject(indexWorker.getDocument().getCollection.getURI.getCollectionPath, indexWorker.getDocument().getCollection.getId, indexWorker.getDocument().getDocId, None, None, Some(element.getNodeId.toString), None, Seq.empty)))
       val processingAtPath = processing.get(pathClone) match {
         case Some(existingElementRootObjects) =>
           // we filter out newElementRootObjects that are equivalent to elementRootObjects which we are already processing
@@ -421,7 +444,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     if (elementRootObjects.nonEmpty) {
       // index them
       elementRootObjects
-        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentIdOrWarn(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeIdOrWarn(partialRootObject.indexName, pathClone))))
+        .foreach(partialRootObject => index(partialRootObject.indexName, partialRootObject.indexable.copy(userSpecifiedDocumentId = getUserSpecifiedDocumentIdOrWarn(partialRootObject.indexName), userSpecifiedVisibleBy = getUserSpecifiedVisibleByOrWarn(partialRootObject.indexName), userSpecifiedNodeId = getUserSpecifiedNodeIdOrWarn(partialRootObject.indexName, pathClone))))
 
       // finished... so remove them from the map of things we are processing
       this.processing = processing.view.filterKeys(_ != pathClone).toMap
@@ -441,12 +464,13 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     }
 
     // finish indexing any documents for which we have IndexableRootObjects
-    indexConfigs.keys.foreach(indexName => finishDocumentIndex(indexName, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
+    indexConfigs.keys.foreach(indexName => finishDocumentIndex(indexName, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), userSpecifiedVisibleByIds.get(indexName).flatMap(_.value), indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
 
     // finished... so clear the map of things we are processing
     this.processing = Map.empty
 
     this.userSpecifiedDocumentIds = Map.empty
+    this.userSpecifiedVisibleByIds = Map.empty
     this.userSpecifiedNodeIds = Map.empty
   }
 
@@ -458,6 +482,21 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
             value
           case None =>
             logger.warn(s"Unable to find user specified document id for index=${indexName} at path=${userSpecifiedDocumentId.path}, will use default!")
+            None
+        }
+      case None =>
+        None
+    }
+  }
+
+  private def getUserSpecifiedVisibleByOrWarn(indexName: IndexName) : Option[UserSpecifiedVisibleBy] = {
+    userSpecifiedVisibleByIds.get(indexName) match {
+      case Some(userSpecifiedVisibleBy) =>
+        userSpecifiedVisibleBy.value match {
+          case value : Some[UserSpecifiedVisibleBy] =>
+            value
+          case None =>
+            logger.warn(s"Unable to find user specified document id for index=${indexName} at path=${userSpecifiedVisibleBy.path}, will use default!")
             None
         }
       case None =>
@@ -576,6 +615,14 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
   private def getString(node: ElementOrAttributeImpl): Either[Seq[Throwable], String] = node.fold(serializeAsText, _.getValue.asRight)
 
+  private def getStringFromNode(node: Node): Either[Seq[Throwable], String] = {
+    node match {
+      case attr: Attr =>
+        attr.getValue.asRight
+      case other =>
+        serializeAsText(other)
+    }
+  }
   private def updateProcessingChildren(path: NodePath, node: ElementOrAttributeImpl) {
 
     def nodeIdStr(node: ElementOrAttributeImpl) : String = foldNode(node, _.getNodeId.toString)
@@ -839,7 +886,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     incrementalIndexingActor ! Add(indexName, indexableRootObject)
   }
 
-  private def finishDocumentIndex(indexName: IndexName, userSpecifiedDocumentId: Option[String], collectionId: CollectionId, documentId: DocumentId) {
+  private def finishDocumentIndex(indexName: IndexName, userSpecifiedDocumentId: Option[String], userSpecifiedVisibleBy: Option[String], collectionId: CollectionId, documentId: DocumentId) {
     incrementalIndexingActor ! FinishDocument(indexName, userSpecifiedDocumentId, collectionId, documentId)
   }
 }

@@ -33,7 +33,7 @@ object IncrementalIndexingManagerActor {
   case class Add(indexName: IndexName, indexableRootObject: IndexableRootObject)
   case class FinishDocument(indexName: IndexName, userSpecifiedDocumentId: Option[String], collectionId: CollectionId, documentId: DocumentId)
   case class IndexChanges(indexName: IndexName, changes: Changes)
-  case class RemoveForDocument(indexName: IndexName, documentId: DocumentId, userSpecifiedDocumentId: Option[String])
+  case class RemoveForDocument(indexName: IndexName, documentId: DocumentId, userSpecifiedDocumentId: Option[String], userSpecifiedVisibleBy: Option[String])
   case class RemoveForCollection(indexName: IndexName, collectionPath: String)
   case object DropIndexes
 }

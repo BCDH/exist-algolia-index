@@ -47,6 +47,7 @@ package object algolia {
   }
 
   type UserSpecifiedDocumentId = String
+  type UserSpecifiedVisibleBy = String
   type UserSpecifiedNodeId = String
 
   type CollectionPath = String
@@ -54,7 +55,7 @@ package object algolia {
   type DocumentId = Int
   type objectID = String
 
-  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[Either[IndexableAttribute, IndexableObject]])
+  @JsonSerialize(using=classOf[IndexableRootObjectJsonSerializer]) case class IndexableRootObject(collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], userSpecifiedVisibleBy: Option[UserSpecifiedVisibleBy], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[Either[IndexableAttribute, IndexableObject]])
   case class IndexableAttribute(name: Name, values: IndexableValues, literalType: LiteralTypeConfig.LiteralTypeConfig)
   case class IndexableObject(name: Name, values: IndexableValues)
 
