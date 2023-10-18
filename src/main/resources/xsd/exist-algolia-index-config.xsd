@@ -123,6 +123,11 @@
           <xs:documentation>Indicates an element or attribute to use the value of as a unique id for the document, if ommitted the document's id is used</xs:documentation>
         </xs:annotation>
       </xs:attribute>
+      <xs:attribute name="visibleBy" use="optional" type="c:absoluteElementPathOrAbsoluteAttributePathType">
+        <xs:annotation>
+          <xs:documentation>Sets the rule of who can request the records, if omitted the default value will be public</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
     </xs:complexType>
   </xs:element>
 
