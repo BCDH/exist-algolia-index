@@ -11,9 +11,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Setup Scala
-        uses: olafurpg/setup-scala@v12
+        uses: olafurpg/setup-scala@v14
         with:
           java-version: "adopt@1.${{ matrix.jdk }}"
       - name: Coursier cache
