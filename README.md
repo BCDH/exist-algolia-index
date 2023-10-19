@@ -11,6 +11,8 @@ eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](htt
 
 ## Installation
 
+The Algolia indexer is dependent on  https://github.com/BCDH/cql-module follow the install instructions in the `README`.
+
 It's probably a good idea to start with a clean database, which means a completely clean `$EXIST_HOME/webapp/WEB-INF/data` folder.
 
 * The Index plugin requires at least eXist version 3.0.
@@ -19,7 +21,7 @@ It's probably a good idea to start with a clean database, which means a complete
 
 - Make sure eXist is not running
 
-- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.0.jar` into eXist's `lib/user`.
+- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.0.jar` into eXist's `lib/user`, `lib` for eXist-db-6.x.x.
 
 - Modify eXist's `conf.xml` file by adding the following line to the `indexer/modules` section:
 
@@ -28,6 +30,17 @@ It's probably a good idea to start with a clean database, which means a complete
     class="org.humanistika.exist.index.algolia.AlgoliaIndex"
     application-id="YOUR-ALGOLIA-APPLICATION-ID"
     admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"/>
+```
+
+### just for exist-6.x.x
+- add the dependency in `etc/startup.xml` 
+```xml
+<dependency>
+    <groupId>Your group id</groupId>
+    <artifactId>AlgoliaIndex</artifactId>
+    <version>1.1.0</version>
+    <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath> <!-- this should reflect the exact filename you placed in the lib folder in lib folder -->
+</dependency>
 ```
 
 - Startup eXist.
