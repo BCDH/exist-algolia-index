@@ -71,7 +71,7 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
                     <namespace>http://www.w3.org/XML/1998/namespace</namespace>
                 </namespaceMapping>
             </namespaceMappings>
-            <index name="my-algolia-index-1" documentId="/path/to/unique-id/@хml:id">
+            <index name="my-algolia-index-1" documentId="/path/to/unique-id/@хml:id" visibleBy="/path/to/unique-id">
                 <rootObject path="/path/to/element" nodeId="@xml:id">
                     <attribute name="f1" path="/further/patha"/>
                     <attribute name="f2" path="/further/pathb" type="integer"/>
@@ -87,6 +87,8 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
 ```
 
 
+An Optional `VisibleBy` attribute can be used to restrict data access when searching the Algolia index
+
 A `rootObject` is equivalent to an object inside an Algolia Index. We create one "rootObject" either for each document, or document fragment (if you specify a path attribute on the rootObject).
 
 An `attribute` (represents a JSON object attribute, not to be confused with an XML attribute) is a simple key/value pair that is extracted from the XML and placed into the Algolia object ("rootObject" as we call it). All of the text nodes or attribute values indicated by the "path" on the "attribute" element will be serialized to a string (and then converted if you set an explicit "type" attribute).
@@ -98,6 +100,14 @@ The XML Schema file https://github.com/BCDH/exist-algolia-index/blob/master/src/
 An `object` represents a JSON object, and this is where things become fun, we basically serialize the XML node pointed to by the "path" attribute on the "object" element to a JSON equivalent. This allows you to create highly complex and structured objects in the Algolia index from your XML.
 
 The `name` attribute that is available on the "attribute" and "object" elements allows you to set the name of the field in the JSON object of the Algolia index, this means that name names of your data fields can be different in Algolia to eXist if you wish.
+
+## limiting Objects access to certain users
+You can limit data access by setting the `visibleBy` attribute in `collection.xconf` then matching the path in your XML data preferably in the header
+You can use this example from out test suit
+
+xml: https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/VSK.TEST.xml
+
+collection.xconf https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/collection.xconf
 
 <a name="logging"/>
 
