@@ -92,7 +92,8 @@ lazy val root = Project("exist-algolia-index", file("."))
     releasePublishArtifactsAction := PgpKeys.publishSigned.value,
 
     resolvers += Resolver.mavenLocal,
-    resolvers += "eXist Maven Repo" at "https://raw.github.com/eXist-db/mvn-repo/master/"
+    resolvers += "Evolved Binary eXist-db Release Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db/",
+    resolvers += "Evolved Binary eXist-db Snapshot Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db-snapshots/"
   )
 
 // Fancy up the Assembly JAR
