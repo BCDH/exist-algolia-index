@@ -1,7 +1,6 @@
 package org.humanistika.exist.index.algolia
 
 import java.nio.file.{Path, Paths}
-
 import akka.actor.{ActorRef, ActorSystem}
 import org.exist.collections.CollectionConfiguration
 import org.exist.indexing.IndexWorker
@@ -12,11 +11,11 @@ import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, StartDocument}
 import org.specs2.mutable.Specification
 import org.w3c.dom.Element
-
 import AlgoliaStreamListenerIntegrationSpec._
 import ExistAPIHelper._
-
 import cats.syntax.either._
+
+import scala.util.Using
 
 object AlgoliaStreamListenerIntegrationSpec {
   def getTestResource(filename: String): Path = Paths.get(classOf[AlgoliaStreamListenerIntegrationSpec].getClassLoader.getResource(filename).toURI)
@@ -452,44 +451,46 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
   }
 
   private def storeCollectionConfig(algoliaIndex: AlgoliaIndex, testCollectionPath: XmldbURI, collectionXconfFile: Path)(implicit brokerPool: BrokerPool) {
-    val collectionConf = new FileInputSource(collectionXconfFile)
-    withBroker { broker =>
-      withTxn { txn =>
-        injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
+    Using(new FileInputSource(collectionXconfFile)) { collectionConf =>
+      withBroker { broker =>
+        withTxn { txn =>
+          injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
 
-        val collection = broker.getOrCreateCollection(txn, XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath))
-        broker.saveCollection(txn, collection)
+          Using(broker.getOrCreateCollection(txn, XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath))) { collection =>
+            broker.saveCollection(txn, collection)
 
-        broker.storeDocument(txn, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf, MimeType.XML_TYPE, collection)
-        collection.close()
+            broker.storeDocument(txn, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf, MimeType.XML_TYPE, collection)
+          }.get
+        }
       }
-    }
+    }.get
   }
 
   private def storeTestDocument(algoliaIndex: AlgoliaIndex, testCollectionPath: XmldbURI, documentFile: Path)(implicit brokerPool: BrokerPool): (Int, Int) = {
-    val dataFile = new FileInputSource(documentFile)
-    withBroker { broker =>
-      withTxn { txn =>
+    Using(new FileInputSource(documentFile)) { dataFile =>
+      withBroker { broker =>
+        withTxn { txn =>
 
-        injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
+          injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
 
-        val collection = broker.getOrCreateCollection(txn, testCollectionPath)
-        broker.saveCollection(txn, collection)
-        val collectionId = collection.getId
+          Using(broker.getOrCreateCollection(txn, testCollectionPath)) { collection =>
+            broker.saveCollection(txn, collection)
+            val collectionId = collection.getId
 
-        broker.storeDocument(txn, XmldbURI.create("VSK.TEST.xml"), dataFile, MimeType.XML_TYPE, collection)
-        val doc = collection.getDocument(broker,XmldbURI.create("VSK.TEST.xml"))
-        val docId = doc.getDocId
-        collection.close()
+            broker.storeDocument(txn, XmldbURI.create("VSK.TEST.xml"), dataFile, MimeType.XML_TYPE, collection)
+            val doc = collection.getDocument(broker, XmldbURI.create("VSK.TEST.xml"))
+            val docId = doc.getDocId
 
-        (collectionId, docId)
+            (collectionId, docId)
+          }.get
+        }
+      }.flatMap(identity) match {
+        case Left(e) =>
+          throw e
+        case Right(result) =>
+          result
       }
-    }.flatMap(identity) match {
-      case Left(e) =>
-        throw e
-      case Right(result) =>
-        result
-    }
+    }.get
   }
 
   private def mockIndexModuleConfig() : Element = {
