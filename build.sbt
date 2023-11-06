@@ -1,5 +1,9 @@
 import ReleaseTransformations._
 
+val jaxbApiV = "3.0.1"
+
+val jaxbImplV = "3.0.2"
+
 ThisBuild / versionScheme := Some("semver-spec")
 
 lazy val root = Project("exist-algolia-index", file("."))
@@ -23,13 +27,18 @@ lazy val root = Project("exist-algolia-index", file("."))
         name = "Adam Retter",
         email = "adam@evolvedbinary.com",
         url = url("https://www.evolvedbinary.com")
+      ),
+      Developer(
+        id = "mamroure",
+        name = "Younes Bahloul",
+        email = "younes@evolvedbinary.com",
+        url = url("https://www.evolvedbinary.com")
       )
     ),
     headerLicense := Some(HeaderLicense.GPLv3("2016", "Belgrade Center for Digital Humanities")),
     xjcLibs := Seq(
-          "org.glassfish.jaxb" % "jaxb-xjc"           % "2.3.8",
-          "com.sun.xml.bind"   % "jaxb-impl"          % "2.3.8",
-          "com.sun.activation" % "jakarta.activation" % "1.2.2"
+          "org.glassfish.jaxb" % "jaxb-xjc"           % jaxbImplV,
+          "org.glassfish.jaxb" % "jaxb-runtime"       % jaxbImplV
     ),
     libraryDependencies ++= {
 
@@ -45,14 +54,13 @@ lazy val root = Project("exist-algolia-index", file("."))
 
         "org.parboiled" %% "parboiled" % "2.5.0",
 
-        "javax.xml.bind" % "jaxb-api" % "2.3.1",
+        "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiV % Provided,
+        "org.glassfish.jaxb" % "jaxb-runtime" % jaxbImplV % Provided,
 
         "org.clapper" %% "grizzled-slf4j" % "1.3.4"
           exclude("org.slf4j", "slf4j-api"),
 
-        "org.exist-db" % "exist-core" % existV % Provided
-          exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi")
-          exclude("jakarta.xml.bind", "jakarta.xml.bind-api"),
+        "org.exist-db" % "exist-core" % existV % Provided,
         "net.sf.saxon" % "Saxon-HE" % "9.9.1-8" % Provided,
         "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
         "commons-codec" % "commons-codec" % "1.15" % Provided,
