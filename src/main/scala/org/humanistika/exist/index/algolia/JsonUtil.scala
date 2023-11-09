@@ -1,6 +1,6 @@
 package org.humanistika.exist.index.algolia
 
-import javax.xml.bind.DatatypeConverter
+import jakarta.xml.bind.DatatypeConverter
 
 import com.fasterxml.jackson.core.JsonGenerator
 import org.humanistika.exist.index.algolia.LiteralTypeConfig.LiteralTypeConfig

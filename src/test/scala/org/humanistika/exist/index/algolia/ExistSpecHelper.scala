@@ -62,7 +62,7 @@ trait ExistServerStartStopHelper {
   var instanceName: Option[String] = None
   val configFile: Option[Path] = None
   var configProperties: Option[Properties] = None
-  var useTemporaryStorage: Boolean = false
+  var useTemporaryStorage: Boolean = true
   var disableAutoDeploy: Boolean = true
 
   private var temporaryStorage : Option[Path] = None

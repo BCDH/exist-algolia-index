@@ -17,7 +17,7 @@
 
 package org.humanistika.exist.index.algolia
 
-import javax.xml.bind.JAXBContext
+import jakarta.xml.bind.JAXBContext
 
 import org.exist.collections.Collection
 import org.exist.dom.persistent._

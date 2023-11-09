@@ -1,5 +1,9 @@
 import ReleaseTransformations._
 
+val jaxbApiV = "3.0.1"
+
+val jaxbImplV = "3.0.2"
+
 ThisBuild / versionScheme := Some("semver-spec")
 
 lazy val root = Project("exist-algolia-index", file("."))
@@ -23,16 +27,26 @@ lazy val root = Project("exist-algolia-index", file("."))
         name = "Adam Retter",
         email = "adam@evolvedbinary.com",
         url = url("https://www.evolvedbinary.com")
+      ),
+      Developer(
+        id = "mamroure",
+        name = "Younes Bahloul",
+        email = "younes@evolvedbinary.com",
+        url = url("https://www.evolvedbinary.com")
       )
     ),
     headerLicense := Some(HeaderLicense.GPLv3("2016", "Belgrade Center for Digital Humanities")),
+    xjcLibs := Seq(
+          "org.glassfish.jaxb" % "jaxb-xjc"           % jaxbImplV,
+          "org.glassfish.jaxb" % "jaxb-runtime"       % jaxbImplV
+    ),
     libraryDependencies ++= {
 
   val catsCoreV = "2.10.0"
-  val existV = "4.4.0"
+  val existV = "6.3.0-SNAPSHOT"
   val algoliaV = "2.19.0"
   val akkaV = "2.6.20"
-  val jacksonV = "2.9.7"
+  val jacksonV = "2.13.4"
 
   Seq(
         "org.scala-lang.modules" %% "scala-java8-compat" % "1.0.2",
@@ -40,14 +54,16 @@ lazy val root = Project("exist-algolia-index", file("."))
 
         "org.parboiled" %% "parboiled" % "2.5.0",
 
+        "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiV % Provided,
+        "org.glassfish.jaxb" % "jaxb-runtime" % jaxbImplV % Provided,
+
         "org.clapper" %% "grizzled-slf4j" % "1.3.4"
           exclude("org.slf4j", "slf4j-api"),
 
-        "org.exist-db" % "exist-core" % existV % Provided
-          exclude("org.exist-db.thirdparty.javax.xml.xquery", "xqjapi"),
-        "net.sf.saxon" % "Saxon-HE" % "9.6.0-7" % Provided,
+        "org.exist-db" % "exist-core" % existV % Provided,
+        "net.sf.saxon" % "Saxon-HE" % "9.9.1-8" % Provided,
         "com.fasterxml.jackson.core" % "jackson-core" % jacksonV % Provided,
-        "commons-codec" % "commons-codec" % "1.11" % Provided,
+        "commons-codec" % "commons-codec" % "1.15" % Provided,
 
         "com.fasterxml.jackson.core" % "jackson-databind" % jacksonV
           exclude("com.fasterxml.jackson.core", "jackson-core"),
@@ -66,7 +82,7 @@ lazy val root = Project("exist-algolia-index", file("."))
         "org.easymock" % "easymock" % "3.6" % Test,
 
         "org.exist-db" % "exist-start" % existV % Test,
-        "org.apache.httpcomponents" % "httpclient" % "4.5.6" % Test
+        "org.apache.httpcomponents" % "httpclient" % "4.5.14" % Test
       )
     },
     publishMavenStyle := true,
@@ -84,7 +100,8 @@ lazy val root = Project("exist-algolia-index", file("."))
     releasePublishArtifactsAction := PgpKeys.publishSigned.value,
 
     resolvers += Resolver.mavenLocal,
-    resolvers += "eXist Maven Repo" at "https://raw.github.com/eXist-db/mvn-repo/master/"
+    resolvers += "Evolved Binary eXist-db Release Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db/",
+    resolvers += "Evolved Binary eXist-db Snapshot Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db-snapshots/"
   )
 
 // Fancy up the Assembly JAR
@@ -122,8 +139,15 @@ Compile / assembly / artifact := {
   art.withClassifier(Some("assembly"))
 }
 
-addArtifact(Compile / assembly / artifact, assembly)
+assembly / assemblyMergeStrategy := {
+  case PathList("META-INF", "versions", "9", xs @ _*) => MergeStrategy.discard
+  case x if x.endsWith("module-info.class") => MergeStrategy.discard
+  case x =>
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
+    oldStrategy(x)
+}
 
+addArtifact(Compile / assembly / artifact, assembly)
 
 pomExtra := (
   <developers>

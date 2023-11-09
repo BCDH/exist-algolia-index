@@ -1,22 +1,21 @@
 package org.humanistika.exist.index.algolia
 
 import java.nio.file.{Path, Paths}
-
 import akka.actor.{ActorRef, ActorSystem}
 import org.exist.collections.CollectionConfiguration
 import org.exist.indexing.IndexWorker
 import org.exist.storage.{BrokerPool, DBBroker, ScalaBrokerPoolBridge}
-import org.exist.util.FileInputSource
+import org.exist.util.{FileInputSource, MimeType}
 import org.exist.xmldb.XmldbURI
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, StartDocument}
 import org.specs2.mutable.Specification
 import org.w3c.dom.Element
-
 import AlgoliaStreamListenerIntegrationSpec._
 import ExistAPIHelper._
-
 import cats.syntax.either._
+
+import scala.util.Using
 
 object AlgoliaStreamListenerIntegrationSpec {
   def getTestResource(filename: String): Path = Paths.get(classOf[AlgoliaStreamListenerIntegrationSpec].getClassLoader.getResource(filename).toURI)
@@ -44,7 +43,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/basic/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/basic/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/basic/VSK.TEST.xml"))
@@ -90,7 +90,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/element-without-attributes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/element-without-attributes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/element-without-attributes/algolia-test.xml"))
@@ -124,7 +125,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/predicate/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/predicate/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/predicate/VSK.TEST.xml"))
@@ -168,7 +170,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/multi-predicates/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/multi-predicates/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/multi-predicates/algolia-test.xml"))
@@ -198,7 +201,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId/VSK.TEST.xml"))
@@ -245,7 +249,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId-and-nodeId/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId-and-nodeId/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-docId-and-nodeId/VSK.TEST.xml"))
@@ -291,7 +296,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes/MZ.RGJS.xml"))
@@ -319,7 +325,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-attributes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-attributes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-attributes/MZ.RGJS.xml"))
@@ -347,7 +354,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes-and-attributes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes-and-attributes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-text-nodes-and-attributes/MZ.RGJS.xml"))
@@ -375,7 +383,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-mixed-content-nodes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-mixed-content-nodes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/object-based-mixed-content-nodes/mixed-content-etyms.xml"))
@@ -403,7 +412,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
 
       // set up an index configuration
-      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/attribute-based-text-nodes/collection.xconf"))
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/attribute-based-text-nodes/collection.xconf"))
+      collectionConfigPath must beRight
 
       // store some data (which will be indexed)
       val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/attribute-based-text-nodes/VSK.SR.xml"))
@@ -451,46 +461,48 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
     algoliaIndex
   }
 
-  private def storeCollectionConfig(algoliaIndex: AlgoliaIndex, testCollectionPath: XmldbURI, collectionXconfFile: Path)(implicit brokerPool: BrokerPool) {
-    val collectionConf = new FileInputSource(collectionXconfFile)
-    withBroker { broker =>
-      withTxn { txn =>
-        injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
+  private def storeCollectionConfig(algoliaIndex: AlgoliaIndex, testCollectionPath: XmldbURI, collectionXconfFile: Path)(implicit brokerPool: BrokerPool) : Either[Exception, XmldbURI] = {
+    Using(new FileInputSource(collectionXconfFile)) { collectionConf =>
+      withBroker { broker =>
+        withTxn { txn =>
+          injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
 
-        val collection = broker.getOrCreateCollection(txn, XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath))
-        broker.saveCollection(txn, collection)
+          Using(broker.getOrCreateCollection(txn, XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath))) { collection =>
+            broker.saveCollection(txn, collection)
+            broker.storeDocument(txn, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf, MimeType.XML_TYPE, collection)
 
-        val indexInfo = collection.validateXMLResource(txn, broker, CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI, collectionConf)
-        collection.store(txn, broker, indexInfo, collectionConf)
-        //collection.close()
+            XmldbURI.CONFIG_COLLECTION_URI.append(testCollectionPath).append(CollectionConfiguration.DEFAULT_COLLECTION_CONFIG_FILE_URI)
+          }.get
+        }
       }
-    }
+    }.get.flatten
   }
 
   private def storeTestDocument(algoliaIndex: AlgoliaIndex, testCollectionPath: XmldbURI, documentFile: Path)(implicit brokerPool: BrokerPool): (Int, Int) = {
-    val dataFile = new FileInputSource(documentFile)
-    withBroker { broker =>
-      withTxn { txn =>
+    Using(new FileInputSource(documentFile)) { dataFile =>
+      withBroker { broker =>
+        withTxn { txn =>
 
-        injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
+          injectAlgoliaIndexWorkerIfNotPresent(broker, algoliaIndex)
 
-        val collection = broker.getOrCreateCollection(txn, testCollectionPath)
-        broker.saveCollection(txn, collection)
-        val collectionId = collection.getId
+          Using(broker.getOrCreateCollection(txn, testCollectionPath)) { collection =>
+            broker.saveCollection(txn, collection)
+            val collectionId = collection.getId
 
-        val indexInfo = collection.validateXMLResource(txn, broker, XmldbURI.create("VSK.TEST.xml"), dataFile)
-        collection.store(txn, broker, indexInfo, dataFile)
-        val docId = indexInfo.getDocument.getDocId
-        //collection.close()
+            broker.storeDocument(txn, XmldbURI.create("VSK.TEST.xml"), dataFile, MimeType.XML_TYPE, collection)
+            val doc = collection.getDocument(broker, XmldbURI.create("VSK.TEST.xml"))
+            val docId = doc.getDocId
 
-        (collectionId, docId)
+            (collectionId, docId)
+          }.get
+        }
+      }.flatMap(identity) match {
+        case Left(e) =>
+          throw e
+        case Right(result) =>
+          result
       }
-    }.flatMap(identity) match {
-      case Left(e) =>
-        throw e
-      case Right(result) =>
-        result
-    }
+    }.get
   }
 
   private def mockIndexModuleConfig() : Element = {
