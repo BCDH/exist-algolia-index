@@ -59,7 +59,7 @@ class AlgoliaIndexManagerActor extends Actor {
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! changes
 
-    case rfd @ RemoveForDocument(indexName, documentId, userSpecifiedDocumentId) =>
+    case rfd @ RemoveForDocument(indexName, documentId, userSpecifiedDocumentId, userSpecifiedVisibleBy) =>
       if(logger.isTraceEnabled) {
         logger.trace(s"Initiating RemoveForDocument (id=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) for index: $indexName")
       }
@@ -199,7 +199,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
 
 
 
-    case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
+    case RemoveForDocument(_, documentId, userSpecifiedDocumentId, userSpecifiedVisibleBy) =>
       val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
 
       logger.info(s"Sending remove document (msgId=$batchLogMsgGroupId) to Algolia for documentId=$documentId, userSpecificDocId=$userSpecifiedDocumentId in index: $indexName")

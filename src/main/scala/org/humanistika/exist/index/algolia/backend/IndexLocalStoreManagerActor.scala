@@ -84,7 +84,7 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
     case indexChanges : IndexChanges =>
       context.parent ! indexChanges
 
-    case removeForDocument @ RemoveForDocument(indexName, _, _) =>
+    case removeForDocument @ RemoveForDocument(indexName, _, _, _) =>
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! removeForDocument
 
@@ -131,7 +131,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       this.processing = processing + (documentId -> timestamp)
       getOrCreatePerDocumentActor(documentId)
 
-    case Add(_, iro @ IndexableRootObject(_, _, documentId, _, _, _, _)) =>
+    case Add(_, iro @ IndexableRootObject(_, _, documentId, _, _, _, _, _)) =>
       val perDocumentActor = getOrCreatePerDocumentActor(documentId)
       val timestamp = processing(documentId)
       perDocumentActor ! Write(timestamp, iro)
@@ -152,7 +152,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       context.parent ! IndexChanges(indexName, changes)
     //TODO(AR) when to delete previous timestamp (after upload into Algolia)
 
-    case RemoveForDocument(_, documentId, userSpecifiedDocumentId) =>
+    case RemoveForDocument(_, documentId, userSpecifiedDocumentId, userSpecifiedVisibleBy) =>
       val perDocumentActor = getOrCreatePerDocumentActor(documentId)
       val maybeTimestamp = processing.get(documentId)
       perDocumentActor ! RemoveDocument(documentId, userSpecifiedDocumentId, maybeTimestamp)  // perDocumentActor will stop itself!

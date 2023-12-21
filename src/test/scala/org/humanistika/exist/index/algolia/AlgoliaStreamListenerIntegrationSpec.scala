@@ -56,23 +56,23 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
         Left(("dict", Seq("1.5.2.2.4.1"))),
         Left(("lemma", Seq("1.5.2.2.4.3.3"))),
         Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.6"), None, Seq(
         Left(("dict", Seq("1.5.2.2.6.1"))),
         Left(("lemma", Seq("1.5.2.2.6.3.3"))),
         Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.8"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.8"), None, Seq(
         Left(("dict", Seq("1.5.2.2.8.1"))),
         Left(("lemma", Seq("1.5.2.2.8.3.3"))),
         Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.10"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.10"), None, Seq(
         Left(("dict", Seq("1.5.2.2.10.1"))),
         Left(("lemma", Seq("1.5.2.2.10.3.3"))),
         Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.12"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.12"), None, Seq(
         Left(("dict", Seq("1.5.2.2.12.1"))),
         Left(("lemma", Seq("1.5.2.2.12.3.3"))),
         Left(("tr", Seq("1.5.2.2.12.9.3.3")))))
@@ -103,12 +103,12 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
         Left(("lemma", Seq(
           "1.5.2.2.4.6.3",
           "1.5.2.2.4.8.5",
           "1.5.2.2.4.12.5")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.6"), None, Seq(
         Left(("lemma", Seq(
           "1.5.2.2.6.6.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
@@ -138,23 +138,23 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
         Left(("dict", Seq("1.5.2.2.4.1"))),
         Left(("lemma", Seq("1.5.2.2.4.3.3"))),
         Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.6"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.6"), None, Seq(
         Left(("dict", Seq("1.5.2.2.6.1"))),
         Left(("lemma", Seq("1.5.2.2.6.3.3"))),
         Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.8"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.8"), None, Seq(
         Left(("dict", Seq("1.5.2.2.8.1"))),
         Left(("lemma", Seq("1.5.2.2.8.3.3"))),
         Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.10"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.10"), None, Seq(
         Left(("dict", Seq("1.5.2.2.10.1"))),
         Left(("inverse-lemma", Seq("1.5.2.2.10.3.3"))),
         Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.12"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.12"), None, Seq(
         Left(("dict", Seq("1.5.2.2.12.1"))),
         Left(("lemma", Seq("1.5.2.2.12.3.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
@@ -183,7 +183,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some("1.5.2.2.4"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
         Left(("trde", Seq("1.5.2.2.4.14.6.3", "1.5.2.2.4.16.6.3", "1.5.2.2.4.18.6.3", "1.5.2.2.4.18.8.3", "1.5.2.2.4.22.6.3", "1.5.2.2.4.24.8.3", "1.5.2.2.4.26.6.3"))),
         Left(("trla", Seq("1.5.2.2.4.14.8.3", "1.5.2.2.4.14.10.5", "1.5.2.2.4.16.8.3", "1.5.2.2.4.18.10.3", "1.5.2.2.4.18.12.3", "1.5.2.2.4.22.8.3", "1.5.2.2.4.24.10.3", "1.5.2.2.4.26.8.3")))))
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
@@ -214,27 +214,73 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.4"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.4"), None, Seq(
         Left(("dict", Seq("1.5.2.2.4.1"))),
         Left(("lemma", Seq("1.5.2.2.4.3.3"))),
         Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.6"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.6"), None, Seq(
         Left(("dict", Seq("1.5.2.2.6.1"))),
         Left(("lemma", Seq("1.5.2.2.6.3.3"))),
         Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.8"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.8"), None, Seq(
         Left(("dict", Seq("1.5.2.2.8.1"))),
         Left(("lemma", Seq("1.5.2.2.8.3.3"))),
         Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.10"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.10"), None, Seq(
         Left(("dict", Seq("1.5.2.2.10.1"))),
         Left(("lemma", Seq("1.5.2.2.10.3.3"))),
         Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.12"), None, Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.12"), None, Seq(
         Left(("dict", Seq("1.5.2.2.12.1"))),
         Left(("lemma", Seq("1.5.2.2.12.3.3"))),
         Left(("tr", Seq("1.5.2.2.12.9.3.3")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
+    }
+
+    "produce the correct actor messages for a basic index config with user visibleBy" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-user-visibleBy"
+      val userSpecifiedvisibleBy = "visibility"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-user-visibleBy")
+
+      // register our index
+      implicit val brokerPool: BrokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      // set up an index configuration
+      storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-visibleBy/collection.xconf"))
+
+      // store some data (which will be indexed)
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/user-specified-visibleBy/VSK.TEST.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some(userSpecifiedvisibleBy), Some("1.4.2.2.4"), None, Seq(
+        Left(("dict", Seq("1.4.2.2.4.1"))),
+        Left(("lemma", Seq("1.4.2.2.4.3.3"))),
+        Left(("tr", Seq("1.4.2.2.4.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some(userSpecifiedvisibleBy), Some("1.4.2.2.6"), None, Seq(
+        Left(("dict", Seq("1.4.2.2.6.1"))),
+        Left(("lemma", Seq("1.4.2.2.6.3.3"))),
+        Left(("tr", Seq("1.4.2.2.6.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some(userSpecifiedvisibleBy), Some("1.4.2.2.8"), None, Seq(
+        Left(("dict", Seq("1.4.2.2.8.1"))),
+        Left(("lemma", Seq("1.4.2.2.8.3.3"))),
+        Left(("tr", Seq("1.4.2.2.8.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some(userSpecifiedvisibleBy), Some("1.4.2.2.10"), None, Seq(
+        Left(("dict", Seq("1.4.2.2.10.1"))),
+        Left(("lemma", Seq("1.4.2.2.10.3.3"))),
+        Left(("tr", Seq("1.4.2.2.10.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, Some(userSpecifiedvisibleBy), Some("1.4.2.2.12"), None, Seq(
+        Left(("dict", Seq("1.4.2.2.12.1"))),
+        Left(("lemma", Seq("1.4.2.2.12.3.3"))),
+        Left(("tr", Seq("1.4.2.2.12.9.3.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
 
@@ -262,23 +308,23 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.4"), Some("VSK.SR.Adam"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.4"), Some("VSK.SR.Adam"), Seq(
         Left(("dict", Seq("1.5.2.2.4.1"))),
         Left(("lemma", Seq("1.5.2.2.4.3.3"))),
         Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.6"), Some("VSK.SR.Addam"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.6"), Some("VSK.SR.Addam"), Seq(
         Left(("dict", Seq("1.5.2.2.6.1"))),
         Left(("lemma", Seq("1.5.2.2.6.3.3"))),
         Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.8"), Some("VSK.SR.Adamm"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.8"), Some("VSK.SR.Adamm"), Seq(
         Left(("dict", Seq("1.5.2.2.8.1"))),
         Left(("lemma", Seq("1.5.2.2.8.3.3"))),
         Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.10"), Some("VSK.SR.Adammm"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.10"), Some("VSK.SR.Adammm"), Seq(
         Left(("dict", Seq("1.5.2.2.10.1"))),
         Left(("lemma", Seq("1.5.2.2.10.3.3"))),
         Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("1.5.2.2.12"), Some("VSK.SR.Adammmm"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("1.5.2.2.12"), Some("VSK.SR.Adammmm"), Seq(
         Left(("dict", Seq("1.5.2.2.12.1"))),
         Left(("lemma", Seq("1.5.2.2.12.3.3"))),
         Left(("tr", Seq("1.5.2.2.12.9.3.3")))))
@@ -309,7 +355,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
         Right(("e-e", Seq("4.6.2.2.4.7")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
@@ -338,7 +384,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
         Right(("e-e", Seq("4.6.2.2.4.7")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
@@ -367,7 +413,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("4.6.2.2.4"), Some("MZ.RGJS.наводаџија"), Seq(
         Right(("e-e", Seq("4.6.2.2.4.7")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
@@ -396,7 +442,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("3.5.2.2.4"), Some("VSK.SR.баба2"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("3.5.2.2.4"), Some("VSK.SR.баба2"), Seq(
         Right(("e-e", Seq("3.5.2.2.4.8", "3.5.2.2.4.10", "3.5.2.2.4.12", "3.5.2.2.4.14")))))
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
@@ -425,7 +471,7 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
       expectMsg(Authentication("some-application-id", "some-admin-api-key"))
       expectMsg(StartDocument(indexName, collectionId, docId))
-      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), Some("4.6.2.2.4"), Some("VSK.SR.џукела"), Seq(
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, Some(userSpecifiedDocId), None, Some("4.6.2.2.4"), Some("VSK.SR.џукела"), Seq(
         Left(("l", Seq("4.6.2.2.4.4.3"))),
         Left(("t-de", Seq("4.6.2.2.4.8.3.3"))),
         Left(("t-la", Seq("4.6.2.2.4.8.5.3")))))
@@ -439,12 +485,13 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
   type IndexableAttributeNameAndValueIds = NameAndValueIds
   type IndexableObjectNameAndValueIds = NameAndValueIds
 
-  private def assertAdd(addMsg: Add)(indexName: IndexName, collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[Either[IndexableAttributeNameAndValueIds, IndexableObjectNameAndValueIds]]) = {
+  private def assertAdd(addMsg: Add)(indexName: IndexName, collectionPath: CollectionPath, collectionId: CollectionId, documentId: DocumentId, userSpecifiedDocumentId: Option[UserSpecifiedDocumentId], userSpecifiedVisibleBy: Option[UserSpecifiedVisibleBy] , nodeId: Option[String], userSpecifiedNodeId: Option[UserSpecifiedNodeId], children: Seq[Either[IndexableAttributeNameAndValueIds, IndexableObjectNameAndValueIds]]) = {
     addMsg.indexName mustEqual indexName
     addMsg.indexableRootObject.collectionPath mustEqual collectionPath
     addMsg.indexableRootObject.collectionId mustEqual collectionId
     addMsg.indexableRootObject.documentId mustEqual documentId
     addMsg.indexableRootObject.userSpecifiedDocumentId mustEqual userSpecifiedDocumentId
+    addMsg.indexableRootObject.userSpecifiedVisibleBy mustEqual userSpecifiedVisibleBy
     addMsg.indexableRootObject.nodeId mustEqual nodeId
     addMsg.indexableRootObject.userSpecifiedNodeId mustEqual userSpecifiedNodeId
 

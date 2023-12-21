@@ -29,6 +29,7 @@ object IndexableRootObjectJsonSerializer {
   val OBJECT_ID_FIELD_NAME = "objectID"
   val COLLECTION_PATH_FIELD_NAME = "collection"
   val DOCUMENT_ID_FIELD_NAME = "documentID"
+  val RECORD_VISIBLE_BY_FIELD_NAME = "visible_by"
 }
 
 class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObject] {
@@ -46,6 +47,11 @@ class IndexableRootObjectJsonSerializer extends JsonSerializer[IndexableRootObje
         gen.writeStringField(DOCUMENT_ID_FIELD_NAME, usd)
       case None =>
         gen.writeNumberField(DOCUMENT_ID_FIELD_NAME, value.documentId)
+    }
+    value.userSpecifiedVisibleBy match {
+      case Some(usv) =>
+        gen.writeStringField(RECORD_VISIBLE_BY_FIELD_NAME, usv)
+      case None => // do nothing
     }
 
     serializeChildren(value.children, gen, serializers)
