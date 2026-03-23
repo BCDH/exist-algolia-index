@@ -71,6 +71,89 @@ require_local_admin() {
   fi
 }
 
+local_exist_runtime_mode() {
+  local conf_xml process_lines
+  conf_xml=$(resolve_local_conf_xml)
+  process_lines=$(ps -axo pid=,command= | rg -F -- "-Dexist.configurationFile=${conf_xml}" || true)
+  process_lines=$(printf '%s\n' "${process_lines}" | rg -v -- "-Dapp.name=client|-Dapp.name=shutdown" || true)
+
+  if [[ -z "${process_lines}" ]]; then
+    printf '%s' "stopped"
+    return 0
+  fi
+
+  if grep -q "org.exist.launcher.Launcher" <<<"${process_lines}" || grep -q -- "-Dapp.name=launcher" <<<"${process_lines}" || grep -q -- "-Dapple.awt.UIElement=true" <<<"${process_lines}"; then
+    printf '%s' "gui"
+    return 0
+  fi
+
+  printf '%s' "running"
+}
+
+ensure_local_automation_allowed() {
+  local runtime_mode
+
+  if ! is_macos_app_bundle_install; then
+    return 0
+  fi
+
+  runtime_mode=$(local_exist_runtime_mode)
+  if [[ "${runtime_mode}" != "gui" ]]; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+Automatic local restart is disabled for this macOS app-bundle eXist while it is running via the GUI launcher.
+
+Stop the GUI-launched instance and start eXist from:
+
+  $(resolve_local_startup_script)
+
+Then rerun the script.
+EOF
+  return 1
+}
+
+default_local_restart_cmd() {
+  local runtime_mode=$1
+  local startup_script shutdown_script
+
+  startup_script=$(resolve_local_startup_script)
+  if [[ "${runtime_mode}" == "stopped" ]]; then
+    printf 'nohup %q >/tmp/exist-algolia-index-startup.log 2>&1 </dev/null &' "${startup_script}"
+    return 0
+  fi
+
+  require_local_admin
+  shutdown_script=$(resolve_local_shutdown_script)
+  printf '%q -u %q -p %q; sleep 5; nohup %q >/tmp/exist-algolia-index-startup.log 2>&1 </dev/null &' \
+    "${shutdown_script}" \
+    "${EXIST_ADMIN_USER}" \
+    "${EXIST_LOCAL_ADMIN_PASSWORD}" \
+    "${startup_script}"
+}
+
+wait_for_local_ready() {
+  local client_cmd
+
+  client_cmd=$(resolve_local_client_cmd)
+  require_local_admin
+
+  for _ in $(seq 1 60); do
+    if "${client_cmd}" \
+      --no-gui \
+      -u "${EXIST_ADMIN_USER}" \
+      -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
+      -x "1" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Local eXist did not become ready in time." >&2
+  return 1
+}
+
 local_client_query() {
   local query=$1
   local client_cmd
@@ -150,16 +233,22 @@ configure_startup() {
 }
 
 restart_exist() {
-  local restart_log
+  local restart_log runtime_mode restart_cmd
 
-  if [[ -z "${EXIST_RESTART_CMD:-}" ]]; then
+  ensure_local_automation_allowed || return 1
+  runtime_mode=$(local_exist_runtime_mode)
+  restart_cmd=${EXIST_RESTART_CMD:-}
+  if [[ -z "${restart_cmd}" ]] && is_macos_app_bundle_install; then
+    restart_cmd=$(default_local_restart_cmd "${runtime_mode}")
+  fi
+  if [[ -z "${restart_cmd}" ]]; then
     echo "Local eXist restart not configured; skipping."
     return 2
   fi
 
   restart_log=$(mktemp -t exist-algolia-index-restart.XXXXXX.log)
-  echo "Local eXist restart: ${EXIST_RESTART_CMD}"
-  if bash -lc "${EXIST_RESTART_CMD}" >"${restart_log}" 2>&1; then
+  echo "Local eXist restart: ${restart_cmd}"
+  if bash -lc "${restart_cmd}" >"${restart_log}" 2>&1 && wait_for_local_ready >>"${restart_log}" 2>&1; then
     echo "Local eXist restart completed. Log: ${restart_log}"
     export EXIST_LAST_RESTART_LOG="${restart_log}"
     return 0
@@ -277,6 +366,7 @@ reindex_collection() {
 install_and_verify() {
   local restart_status=0
 
+  ensure_local_automation_allowed
   build_cmd
   install_plugin
   configure_plugin

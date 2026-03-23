@@ -520,8 +520,87 @@ resolve_local_plugin_lib_dir() {
   exit 1
 }
 
-resolve_local_data_dir() {
+resolve_local_bin_dir() {
   local root
+
+  require_exist_home
+  if root=$(first_matching_root "bin"); then
+    printf '%s' "${root}/bin"
+    return 0
+  fi
+
+  echo "Could not locate the eXist bin directory under ${EXIST_HOME}." >&2
+  exit 1
+}
+
+resolve_local_startup_script() {
+  local bin_dir
+  bin_dir=$(resolve_local_bin_dir)
+  require_file "${bin_dir}/startup.sh"
+  printf '%s' "${bin_dir}/startup.sh"
+}
+
+resolve_local_shutdown_script() {
+  local bin_dir
+  bin_dir=$(resolve_local_bin_dir)
+  require_file "${bin_dir}/shutdown.sh"
+  printf '%s' "${bin_dir}/shutdown.sh"
+}
+
+is_macos_app_bundle_install() {
+  local home=${EXIST_HOME:-}
+
+  if [[ "${home}" == */Contents/Resources/eXist-db ]]; then
+    home=${home%/eXist-db}
+  fi
+
+  if [[ "${home}" == *.app ]] && [[ -d "${home}/Contents/Java" ]]; then
+    return 0
+  fi
+
+  if [[ "${home}" == */Contents/Resources ]] && [[ -d "${home%/Resources}/Java" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+resolve_local_data_dir() {
+  local configured_dir root
+
+  EXIST_CONF_XML_RESOLVED=$(resolve_local_conf_xml)
+  export EXIST_CONF_XML_RESOLVED
+
+  if configured_dir=$(python3 - <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+conf_xml = os.environ.get("EXIST_CONF_XML_RESOLVED")
+if not conf_xml:
+    sys.exit(1)
+
+try:
+    root = ET.parse(conf_xml).getroot()
+except Exception:
+    sys.exit(1)
+
+db_connection = root.find(".//db-connection")
+if db_connection is None:
+    sys.exit(1)
+
+files = db_connection.get("files", "").strip()
+if not files:
+    sys.exit(1)
+
+print(files)
+PY
+  ); then
+    if [[ -n "${configured_dir}" && -d "${configured_dir}" ]]; then
+      printf '%s' "${configured_dir}"
+      return 0
+    fi
+  fi
 
   require_exist_home
   if root=$(first_matching_root "data"); then

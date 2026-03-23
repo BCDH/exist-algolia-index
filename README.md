@@ -58,9 +58,18 @@ EXIST_CLIENT_CMD=/path/to/exist-db/bin/client.sh
 EXIST_CONF_XML=/path/to/exist-db/etc/conf.xml
 EXIST_STARTUP_XML=/path/to/exist-db/etc/startup.xml
 EXIST_PLUGIN_LIB_DIR=/path/to/exist-db/lib
-EXIST_RESTART_CMD="/path/to/exist-db/bin/startup.sh restart"
+# Leave EXIST_RESTART_CMD unset on local macOS .app installs so the script can
+# derive a credentialed shutdown/startup command automatically.
+# EXIST_RESTART_CMD="/path/to/exist-db/bin/shutdown.sh -u admin -p secret && /path/to/exist-db/bin/startup.sh"
 EXIST_REINDEX_COLLECTION=/db/dictionaries/vuk
 ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
+```
+
+For the macOS `.app` bundle, use:
+
+```bash
+EXIST_HOME=/Applications/eXist-db.app
+EXIST_PLUGIN_LIB_DIR=/Applications/eXist-db.app/Contents/Java
 ```
 
 Run the full local flow:
@@ -107,11 +116,13 @@ Useful subcommands:
 
 Notes:
 
-- `run` will build, install, patch `conf.xml`, patch `startup.xml`, restart eXist if `EXIST_RESTART_CMD` is configured, and then verify the install.
+- `run` will build, install, patch `conf.xml`, patch `startup.xml`, restart eXist, and then verify the install.
 - after a successful `run`, the script reindexes `/db` by default so existing configured collections are backfilled into Algolia.
 - set `EXIST_REINDEX_COLLECTION=/db/my-collection` or pass `/db/my-collection` to `run` if you want a narrower default target than `/db`.
 - pass `--skip-reindex` only if you explicitly do not want the post-install backfill step.
-- if `EXIST_RESTART_CMD` is not configured, `run` stops after preparing the files and exits with a clear “restart required before verification” message.
+- on macOS `.app` installs, leave `EXIST_RESTART_CMD` unset. The script derives a credentialed restart command from `startup.sh` and `shutdown.sh` using `EXIST_LOCAL_ADMIN_PASSWORD`.
+- on macOS `.app` installs, `run` and `restart` fail early if eXist is already running via the GUI launcher. Stop that instance and start eXist from `bin/startup.sh` first.
+- on non-macOS installs, if `EXIST_RESTART_CMD` is not configured, `run` stops after preparing the files and exits with a clear “restart required before verification” message.
 - `verify` performs a smoke reindex using the admin account, so `EXIST_LOCAL_ADMIN_PASSWORD` is required.
 - the smoke check verifies both the local store and the remote Algolia upload, then removes the temporary smoke resources from eXist and deletes the temporary Algolia index before the default backfill step can run.
 - `reindex-collection /db/my-collection` is the real backfill step for collections that already contain data before the plugin was installed.
