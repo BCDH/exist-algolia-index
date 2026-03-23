@@ -420,10 +420,45 @@ verify_install() {
 
 reindex_collection() {
   local collection_path=$1
-  local output
+  local output tmp_dir output_file error_file status_file started_at elapsed
 
   require_collection_path "${collection_path}"
-  output=$(client_query_admin "$(reindex_collection_query "${collection_path}")")
+  require_cmd mktemp
+
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+  output_file="${tmp_dir}/stdout"
+  error_file="${tmp_dir}/stderr"
+  status_file="${tmp_dir}/status"
+  started_at=$(date +%s)
+
+  echo "[remote] Reindex started for ${collection_path}. Progress updates will be printed every 15 seconds."
+  (
+    set +e
+    client_query_admin "$(reindex_collection_query "${collection_path}")" >"${output_file}" 2>"${error_file}"
+    printf '%s' "$?" >"${status_file}"
+  ) &
+  local reindex_pid=$!
+
+  while kill -0 "${reindex_pid}" >/dev/null 2>&1; do
+    sleep 15
+    if kill -0 "${reindex_pid}" >/dev/null 2>&1; then
+      elapsed=$(( $(date +%s) - started_at ))
+      echo "[remote] Reindex still running for ${collection_path} (${elapsed}s elapsed)..."
+    fi
+  done
+
+  wait "${reindex_pid}" >/dev/null 2>&1 || true
+  output=$(cat "${output_file}")
+  if [[ -s "${error_file}" ]]; then
+    cat "${error_file}" >&2
+  fi
+  if [[ ! -f "${status_file}" ]] || [[ "$(cat "${status_file}")" != "0" ]]; then
+    echo "${output}"
+    echo "Reindex failed for ${collection_path}" >&2
+    return 1
+  fi
+
   echo "${output}"
   if ! grep -q "true" <<<"${output}"; then
     echo "Reindex failed for ${collection_path}" >&2
