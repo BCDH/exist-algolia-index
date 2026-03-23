@@ -1,8 +1,10 @@
 # eXist-db Indexer for Algolia
+
 ![Build Status](https://github.com/BCDH/exist-algolia-index/actions/workflows/ci.yml/badge.svg) [![Scala 2.13+](https://img.shields.io/badge/scala-2.13+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/humanistika/exist/index/algolia/exist-algolia-index_2.13/1.0/exist-algolia-index_2.13-1.0-assembly.jar)
 
-
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
+
+The current build and test baseline is **eXist-db 6.4.1**.
 
 <p align="center">
   <img src="https://i.imgur.com/yqIlRI0.png">
@@ -11,19 +13,130 @@ eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](htt
 
 ## Installation
 
-The Algolia indexer is dependent on https://github.com/BCDH/cql-module follow the install instructions in the `README`.
+This project is installed as an **eXist plugin JAR**, not as an EXPath/XAR package. The supported deployment model is:
 
-It's probably a good idea to start with a clean database, which means a completely clean `$EXIST_HOME/webapp/WEB-INF/data` folder.
+1. build the assembly JAR
+2. copy it into eXist's `lib` directory
+3. ensure `conf.xml` contains the Algolia index module stanza
+4. ensure `etc/startup.xml` contains the plugin dependency entry
+5. restart eXist
+6. verify the install and run a smoke reindex
 
-* The Index plugin requires at least eXist version 3.0.
+The repo now includes local and staging install scripts for that flow.
 
-* The plugin can be [built from source code](#building) using [SBT](http://www.scala-sbt.org/) or downloaded from [Maven Central](https://search.maven.org/#search%7Cga%7C1%7Cg%3A%20org.humanistika.exist.index.algolia).
+### Build
 
-- Make sure eXist is not running
+Requirements: Java 17, `sbt`.
 
-- Place the jar file named like `exist-algolia-index-assembly-2.13_1.0.0.jar` into eXist's `lib/user`, `lib` for eXist-db-6.x.x.
+```bash
+sbt assembly
+```
 
-- Modify eXist's `conf.xml` file by adding the following line to the `indexer/modules` section:
+The assembly is written to:
+
+```bash
+target/scala-2.13/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar
+```
+
+### Local eXist Install
+
+1. Copy `.env.example` to `.env` if you want defaults loaded automatically.
+2. Set at least:
+
+```bash
+EXIST_HOME=/path/to/exist-db
+ALGOLIA_APPLICATION_ID=your-algolia-application-id
+ALGOLIA_ADMIN_API_KEY=your-algolia-admin-api-key
+EXIST_LOCAL_ADMIN_PASSWORD=your-local-admin-password
+```
+
+Optional local overrides:
+
+```bash
+EXIST_CLIENT_CMD=/path/to/exist-db/bin/client.sh
+EXIST_CONF_XML=/path/to/exist-db/etc/conf.xml
+EXIST_STARTUP_XML=/path/to/exist-db/etc/startup.xml
+EXIST_PLUGIN_LIB_DIR=/path/to/exist-db/lib
+EXIST_RESTART_CMD="/path/to/exist-db/bin/startup.sh restart"
+ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
+```
+
+Run the full local flow:
+
+```bash
+./scripts/exist-local.sh run
+```
+
+Useful subcommands:
+
+```bash
+./scripts/exist-local.sh build
+./scripts/exist-local.sh install-plugin
+./scripts/exist-local.sh configure-plugin
+./scripts/exist-local.sh configure-startup
+./scripts/exist-local.sh restart
+./scripts/exist-local.sh verify
+```
+
+Notes:
+
+- `run` will build, install, patch `conf.xml`, patch `startup.xml`, restart eXist if `EXIST_RESTART_CMD` is configured, and then verify the install.
+- if `EXIST_RESTART_CMD` is not configured, `run` stops after preparing the files and exits with a clear “restart required before verification” message.
+- `verify` performs a smoke reindex using the admin account, so `EXIST_LOCAL_ADMIN_PASSWORD` is required.
+- the smoke check creates or updates a temporary Algolia index and then attempts to delete it.
+
+### Staging Deploy
+
+The staging flow assumes a Dockerized eXist instance on the remote host and copies the plugin JAR into the running container, patches the config files there, restarts the container, and verifies the result.
+
+Set at least:
+
+```bash
+EXIST_STAGE_HOST=staging-host.example.org
+EXIST_STAGE_SSH_USER=deploy-user
+EXIST_STAGE_ADMIN_PASSWORD=your-staging-admin-password
+ALGOLIA_APPLICATION_ID=your-algolia-application-id
+ALGOLIA_ADMIN_API_KEY=your-algolia-admin-api-key
+```
+
+Optional staging overrides:
+
+```bash
+EXIST_STAGE_PORT=22
+EXIST_STAGE_REMOTE_DIR=/tmp/exist-algolia-stage
+EXISTDB_CONTAINER_NAME=existdb-stage
+EXIST_STAGE_CONF_XML=/exist/etc/conf.xml
+EXIST_STAGE_STARTUP_XML=/exist/etc/startup.xml
+EXIST_STAGE_PLUGIN_LIB_DIR=/exist/lib
+EXIST_STAGE_RESTART_CMD="docker restart existdb-stage"
+ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
+```
+
+Run the full staging flow from this checkout:
+
+```bash
+./scripts/exist-stage.sh run
+```
+
+Useful subcommands:
+
+```bash
+./scripts/exist-stage.sh build
+./scripts/exist-stage.sh upload --skip-build
+./scripts/exist-stage.sh deploy --skip-build
+```
+
+Notes:
+
+- the remote helper is `./scripts/exist-stage-remote.sh`; `exist-stage.sh` uploads it automatically and executes it over SSH
+- if `EXIST_STAGE_RESTART_CMD` is unset, the remote helper defaults to `docker restart ${EXISTDB_CONTAINER_NAME}`
+- the staging smoke check also creates or updates a temporary Algolia index and then attempts to delete it
+
+### Manual install reference
+
+If you are not using the scripts, the plugin still needs these two config entries:
+
+`conf.xml`, inside `indexer/modules`:
 
 ```xml
 <module id="algolia-index"
@@ -32,29 +145,20 @@ It's probably a good idea to start with a clean database, which means a complete
     admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"/>
 ```
 
-### just for exist-6.x.x
-- add the dependency in `etc/startup.xml` 
+`etc/startup.xml`, as a dependency entry for the exact JAR filename:
+
 ```xml
 <dependency>
-    <groupId>Your group id</groupId>
-    <artifactId>AlgoliaIndex</artifactId>
-    <version>1.1.0</version>
-    <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath> <!-- this should reflect the exact filename you placed in the lib folder in lib folder -->
+    <groupId>org.humanistika.exist.index.algolia</groupId>
+    <artifactId>exist-algolia-index</artifactId>
+    <version>1.1.0-SNAPSHOT</version>
+    <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath>
 </dependency>
 ```
 
-- Startup eXist.
-
-- For the Collection(s) that you want to index with Algolia, you need to add an Algolia index configuration to eXist's `collection.xconf` file. See [instructions](#collectionconf).
-
-- You can then reindex the collection with the data in eXist the way you normally do, and it should be added to Algolia.
-
-You can use the Algolia Dashboard to examine the index. Alternatively, you can also set up eXist to to log changes to our Algolia Index. See [instructions](#logging).
-
-<a name="collectionconf"/>
+After that, restart eXist and reindex the configured collections.
 
 ## Configuration
-
 
 For a single collection in eXist, you can put data into one or more indexes in Algolia, just create an "index" element inside the "algolia" element for each index and give it the name of the Algolia index, if the index doesn't exist in Algolia it will be automatically created for you.
 
@@ -86,7 +190,6 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
 </collection>
 ```
 
-
 An Optional `VisibleBy` attribute can be used to restrict data access when searching the Algolia index
 
 A `rootObject` is equivalent to an object inside an Algolia Index. We create one "rootObject" either for each document, or document fragment (if you specify a path attribute on the rootObject).
@@ -101,7 +204,8 @@ An `object` represents a JSON object, and this is where things become fun, we ba
 
 The `name` attribute that is available on the "attribute" and "object" elements allows you to set the name of the field in the JSON object of the Algolia index, this means that name names of your data fields can be different in Algolia to eXist if you wish.
 
-## limiting Objects access to certain users
+## Limiting Objects access to certain users
+
 You can limit data access by setting the `visibleBy` attribute in `collection.xconf` then matching the path in your XML data preferably in the header
 You can use this example from out test suit
 
@@ -109,10 +213,7 @@ xml: https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/
 
 collection.xconf https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/collection.xconf
 
-<a name="logging"/>
-
 ## Enable logging in eXist (optional)
-
 
 You can see what we are sending to Algolia by adding the following to your `$EXIST_HOME/log4j2.xml` file:
 
@@ -132,7 +233,7 @@ Add this as a child of the `<Appenders>` element:
 
 And add this as a child of the `<Loggers>` element:
 
-```	xml
+```xml
 <Logger name="org.humanistika.exist.index.algolia" additivity="false" level="trace">
     <AppenderRef ref="algolia.index"/>
 </Logger>
@@ -145,19 +246,17 @@ The log output will then appear in
 
 - you can't use paths with predicates in index configuration. Support for predicates will be added at a later stage.
 - when you backup eXist, you should now also
-make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that holds the local representation of what is on the remote Algolia Server. Support for adding locally stored Algolia indexes to the backup/restore procedure may be added in the future.
+  make a backup copy of `$EXIST_HOME/webapp/WEB-INF/data/algolia-index` as that holds the local representation of what is on the remote Algolia Server. Support for adding locally stored Algolia indexes to the backup/restore procedure may be added in the future.
 
 ## Building from Source
-<a name="building"/>
 
 ```bash
-$ git clone https://github.com/BCDH/exist-algolia-index.git
-$ cd exist-algolia-index
-$ sbt assembly
+git clone https://github.com/BCDH/exist-algolia-index.git
+cd exist-algolia-index
+sbt assembly
 ```
 
-The assembled binary can then be found is in the folder `target/scala-2.13`.
-
+The assembled binary can then be found in `target/scala-2.13`.
 
 ## Acknowledgements
 

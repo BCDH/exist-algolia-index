@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/exist-common.sh"
+
+EXIST_ADMIN_USER=${EXIST_ADMIN_USER:-admin}
+EXIST_LOCAL_ADMIN_PASSWORD=${EXIST_LOCAL_ADMIN_PASSWORD:-${EXIST_ADMIN_PASSWORD:-}}
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/exist-local.sh <command>
+
+Commands:
+  build              Build the plugin assembly JAR with sbt.
+  install-plugin     Copy the plugin JAR into the local eXist lib directory.
+  configure-plugin   Ensure conf.xml contains the Algolia index module stanza.
+  configure-startup  Ensure startup.xml contains the plugin dependency entry.
+  restart            Restart eXist using EXIST_RESTART_CMD if configured.
+  verify             Verify install state and run the smoke reindex check.
+  run                Build, install, configure, restart if configured, then verify.
+  help               Show this help message.
+
+Required environment:
+  EXIST_HOME
+  ALGOLIA_APPLICATION_ID
+  ALGOLIA_ADMIN_API_KEY
+
+Additional required environment for verify/run:
+  EXIST_LOCAL_ADMIN_PASSWORD
+
+Optional environment:
+  EXIST_CLIENT_CMD
+  EXIST_CONF_XML
+  EXIST_STARTUP_XML
+  EXIST_PLUGIN_LIB_DIR
+  EXIST_RESTART_CMD
+  ALGOLIA_SMOKE_INDEX_NAME
+EOF
+}
+
+require_local_admin() {
+  if [[ -z "${EXIST_LOCAL_ADMIN_PASSWORD:-}" ]]; then
+    echo "EXIST_LOCAL_ADMIN_PASSWORD must be set for verification and smoke reindex checks." >&2
+    exit 1
+  fi
+}
+
+local_client_query() {
+  local query=$1
+  local client_cmd
+  client_cmd=$(resolve_local_client_cmd)
+  require_local_admin
+
+  "${client_cmd}" \
+    --no-gui \
+    -u "${EXIST_ADMIN_USER}" \
+    -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
+    -x "${query}"
+}
+
+local_client_collection_cmd() {
+  local client_cmd
+  client_cmd=$(resolve_local_client_cmd)
+  require_local_admin
+
+  "${client_cmd}" \
+    --no-gui \
+    -u "${EXIST_ADMIN_USER}" \
+    -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
+    "$@"
+}
+
+build_cmd() {
+  build_plugin
+  require_plugin_artifact
+  echo "Built ${PLUGIN_JAR_PATH}"
+}
+
+install_plugin() {
+  local plugin_lib_dir
+
+  require_plugin_artifact
+  plugin_lib_dir=$(resolve_local_plugin_lib_dir)
+  ensure_dir "${plugin_lib_dir}"
+
+  echo "Installing plugin JAR into ${plugin_lib_dir}"
+  rm -f "${plugin_lib_dir}/${PLUGIN_ARTIFACT_ID}-assembly-"*.jar
+  cp "${PLUGIN_JAR_PATH}" "${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
+}
+
+configure_plugin() {
+  local conf_xml
+
+  require_cmd python3
+  require_algolia_credentials
+  conf_xml=$(resolve_local_conf_xml)
+
+  echo "Updating ${conf_xml}"
+  python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
+    update-conf \
+    "${conf_xml}" \
+    "${ALGOLIA_APPLICATION_ID}" \
+    "${ALGOLIA_ADMIN_API_KEY}" \
+    "${MANAGED_CONF_BEGIN}" \
+    "${MANAGED_CONF_END}"
+}
+
+configure_startup() {
+  local startup_xml
+
+  require_cmd python3
+  startup_xml=$(resolve_local_startup_xml)
+
+  echo "Updating ${startup_xml}"
+  python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
+    update-startup \
+    "${startup_xml}" \
+    "${PLUGIN_GROUP_ID}" \
+    "${PLUGIN_ARTIFACT_ID}" \
+    "${PROJECT_VERSION}" \
+    "${PLUGIN_JAR_FILENAME}" \
+    "${MANAGED_STARTUP_BEGIN}" \
+    "${MANAGED_STARTUP_END}"
+}
+
+restart_exist() {
+  local restart_log
+
+  if [[ -z "${EXIST_RESTART_CMD:-}" ]]; then
+    echo "Local eXist restart not configured; skipping."
+    return 2
+  fi
+
+  restart_log=$(mktemp -t exist-algolia-index-restart.XXXXXX.log)
+  echo "Local eXist restart: ${EXIST_RESTART_CMD}"
+  if bash -lc "${EXIST_RESTART_CMD}" >"${restart_log}" 2>&1; then
+    echo "Local eXist restart completed. Log: ${restart_log}"
+    export EXIST_LAST_RESTART_LOG="${restart_log}"
+    return 0
+  fi
+
+  echo "Local eXist restart failed. Log: ${restart_log}" >&2
+  cat "${restart_log}" >&2
+  return 1
+}
+
+verify_restart_log() {
+  local restart_log=${1:-}
+
+  if [[ -z "${restart_log}" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${restart_log}" ]]; then
+    echo "Restart log does not exist: ${restart_log}" >&2
+    return 1
+  fi
+
+  if rg -n "ClassNotFoundException|NoClassDefFoundError|Exception in thread" "${restart_log}" >/dev/null 2>&1; then
+    echo "Restart log contains classloading or startup errors: ${restart_log}" >&2
+    return 1
+  fi
+}
+
+run_smoke_test() {
+  local tmp_dir marker_file data_dir output smoke_file smoke_conf found_file
+
+  require_cmd mktemp
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+  marker_file="${tmp_dir}/marker"
+  smoke_file="${tmp_dir}/${SMOKE_DOC_FILENAME}"
+  smoke_conf="${tmp_dir}/${SMOKE_CONFIG_FILENAME}"
+
+  smoke_document_xml >"${smoke_file}"
+  smoke_collection_config >"${smoke_conf}"
+  touch "${marker_file}"
+
+  local_client_query "$(ensure_collection_query "${SMOKE_COLLECTION_PATH}")" >/dev/null
+  local_client_query "$(ensure_collection_query "${SMOKE_CONFIG_COLLECTION_PATH}")" >/dev/null
+  local_client_collection_cmd -c "${SMOKE_COLLECTION_PATH}" -p "${smoke_file}" >/dev/null
+  local_client_collection_cmd -c "${SMOKE_CONFIG_COLLECTION_PATH}" -p "${smoke_conf}" >/dev/null
+
+  output=$(local_client_query "$(reindex_collection_query "${SMOKE_COLLECTION_PATH}")")
+  echo "${output}"
+  if ! grep -q "true" <<<"${output}"; then
+    echo "Smoke reindex failed for ${SMOKE_COLLECTION_PATH}" >&2
+    return 1
+  fi
+
+  sleep 2
+  data_dir=$(resolve_local_data_dir)
+  found_file=$(find_new_local_store_file "${data_dir}" "${marker_file}")
+  if [[ -z "${found_file}" ]]; then
+    echo "No new local Algolia store file was created under ${data_dir}/algolia-index/indexes/${SMOKE_INDEX_NAME}" >&2
+    return 1
+  fi
+
+  echo "Smoke reindex wrote ${found_file}"
+  delete_algolia_index "${SMOKE_INDEX_NAME}"
+}
+
+verify_install() {
+  local conf_xml startup_xml plugin_lib_dir installed_jar restart_log=${1:-}
+
+  require_cmd python3
+  require_algolia_credentials
+  conf_xml=$(resolve_local_conf_xml)
+  startup_xml=$(resolve_local_startup_xml)
+  plugin_lib_dir=$(resolve_local_plugin_lib_dir)
+  installed_jar="${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
+
+  require_file "${installed_jar}"
+
+  python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
+    verify-conf \
+    "${conf_xml}" \
+    --application-id "${ALGOLIA_APPLICATION_ID}" \
+    --admin-api-key "${ALGOLIA_ADMIN_API_KEY}"
+
+  python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
+    verify-startup \
+    "${startup_xml}" \
+    "${PLUGIN_ARTIFACT_ID}" \
+    "${PROJECT_VERSION}" \
+    "${PLUGIN_JAR_FILENAME}"
+
+  verify_restart_log "${restart_log}"
+  run_smoke_test
+}
+
+run_all() {
+  local restart_status=0
+
+  build_cmd
+  install_plugin
+  configure_plugin
+  configure_startup
+
+  set +e
+  restart_exist
+  restart_status=$?
+  set -e
+
+  if [[ "${restart_status}" -eq 2 ]]; then
+    echo "eXist restart is not configured. Installation files were updated, but restart is required before verification." >&2
+    return 2
+  fi
+
+  verify_install "${EXIST_LAST_RESTART_LOG:-}"
+}
+
+main() {
+  local command=${1:-help}
+
+  case "${command}" in
+    build)
+      build_cmd
+      ;;
+    install-plugin)
+      install_plugin
+      ;;
+    configure-plugin)
+      configure_plugin
+      ;;
+    configure-startup)
+      configure_startup
+      ;;
+    restart)
+      restart_exist
+      ;;
+    verify)
+      verify_install "${EXIST_LAST_RESTART_LOG:-}"
+      ;;
+    run)
+      run_all
+      ;;
+    help|-h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown command: ${command}" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "${1:-help}"
