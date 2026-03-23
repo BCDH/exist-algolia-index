@@ -11,7 +11,14 @@ The current build and test baseline is **eXist-db 6.4.1**.
   <span style="color:gray; font-size:0.8rem">eXist Indexer for Algolia in action: autocomplete search on <a href="http://raskovnik.org">http://raskovnik.org</a></span>
 </p>
 
-## Build
+## Installation
+
+Automated local and staging deployment guidance is documented separately:
+
+- [docs/existdb-algolia-index-operator-runbook.md](docs/existdb-algolia-index-operator-runbook.md)
+- [docs/staging-existdb-algolia-index-runbook.md](docs/staging-existdb-algolia-index-runbook.md)
+
+### Build
 
 Requirements: Java 17, `sbt`.
 
@@ -25,7 +32,7 @@ The assembly is written to:
 target/scala-2.13/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar
 ```
 
-## Manual install
+### Manual install
 
 The plugin JAR must be built and then installed into eXist manually.
 
