@@ -102,7 +102,7 @@ def update_startup(
     end: str,
 ) -> None:
     text = read_text(path)
-    indent = indent_for_line(text, r"<group\b[^>]*name=(['\"])user\1", "")
+    indent = indent_for_line(text, r"<dependencies\b")
     dependency_indent = indent + "    "
     value_indent = dependency_indent + "    "
     block = (
@@ -116,38 +116,38 @@ def update_startup(
         f"{dependency_indent}{end}"
     )
 
-    if block_present(text, begin, end):
-        updated = replace_managed_block(text, begin, end, block)
-    else:
-        updated = replace_existing_dependency(text, artifact_id, relative_path, block)
-        if updated == text:
-            group_match = re.search(r"(<group\b[^>]*name=(['\"])user\2[^>]*>)", text)
-            if group_match:
-                closing_match = re.search(r"</group>", text[group_match.end():])
-                if not closing_match:
-                    raise SystemExit(f"Could not locate </group> for user group in {path}")
-                insert_at = group_match.end() + closing_match.start()
-                updated = text[:insert_at] + "\n" + block + "\n" + text[insert_at:]
-            else:
-                closing_root = re.search(r"</[^>]+>\s*$", text, re.DOTALL)
-                if not closing_root:
-                    raise SystemExit(f"Could not locate closing root element in {path}")
-                insert_at = closing_root.start()
-                updated = text[:insert_at] + "\n" + block + "\n" + text[insert_at:]
+    updated = text
+    if block_present(updated, begin, end):
+        updated = replace_managed_block(updated, begin, end, "")
+    updated = replace_existing_dependency(updated, artifact_id, relative_path, "")
+
+    dependencies_close = re.search(r"^[ \t]*</dependencies>", updated, re.MULTILINE)
+    if not dependencies_close:
+        raise SystemExit(f"Could not locate </dependencies> in {path}")
+
+    insert_at = dependencies_close.start()
+    updated = updated[:insert_at].rstrip() + "\n" + block + "\n" + updated[insert_at:]
 
     write_text(path, updated)
 
 
 def verify_startup(path: Path, artifact_id: str, version: str, relative_path: str) -> None:
     text = read_text(path)
+    dependencies_match = re.search(r"<dependencies\b[^>]*>(?P<body>.*?)</dependencies>", text, re.DOTALL)
+    if not dependencies_match:
+        raise SystemExit("startup.xml is missing a <dependencies> section")
+
+    body = dependencies_match.group("body")
     required = [
         f"<artifactId>{artifact_id}</artifactId>",
         f"<version>{version}</version>",
         f"<relativePath>{relative_path}</relativePath>",
     ]
-    missing = [needle for needle in required if needle not in text]
+    missing = [needle for needle in required if needle not in body]
     if missing:
-        raise SystemExit(f"startup.xml is missing expected values: {', '.join(missing)}")
+        raise SystemExit(
+            f"startup.xml is missing expected dependency values inside <dependencies>: {', '.join(missing)}"
+        )
 
 
 def main() -> int:

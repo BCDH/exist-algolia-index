@@ -89,6 +89,23 @@ Notes:
 
 The staging flow assumes a Dockerized eXist instance on the remote host and copies the plugin JAR into the running container, patches the config files there, restarts the container, and verifies the result.
 
+Important for the official `existdb/existdb` image:
+
+- it starts from `exist.uber.jar`
+- `startup.xml` alone does not make a custom plugin JAR visible on the runtime classpath
+- the container must start with the plugin JAR already present and included in `CLASSPATH`
+
+Example container startup shape:
+
+```bash
+docker run \
+  -e CLASSPATH=/exist/lib/exist.uber.jar:/exist/lib/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar \
+  -v "$(pwd)/target/scala-2.13/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar:/exist/lib/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar" \
+  existdb/existdb:release
+```
+
+The staging verification now checks for that when it detects an `exist.uber.jar` container.
+
 Set at least:
 
 ```bash

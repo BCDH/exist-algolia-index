@@ -17,6 +17,7 @@ lazy val root = Project("exist-algolia-index", file("."))
     description := "An eXist-db Index Plugin for Indexing with Algolia",
     organizationName := "Belgrade Center for Digital Humanities",
     organizationHomepage := Some(url("http://bcdh.org")),
+    javacOptions ++= Seq("--release", "8"),
     scmInfo := Some(ScmInfo(
       url("https://github.com/bcdh/exist-algolia-index"),
       "scm:git@github.com:bcdh/exist-algolia-index.git")

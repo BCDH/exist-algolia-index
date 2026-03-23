@@ -49,8 +49,57 @@ require_container_running() {
   fi
 }
 
-container_sh() {
-  docker exec "${EXISTDB_CONTAINER_NAME}" sh -lc "$*"
+container_env_value() {
+  local key=$1
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${EXISTDB_CONTAINER_NAME}" 2>/dev/null |
+    sed -n "s/^${key}=//p" | head -n 1
+}
+
+verify_runtime_classpath() {
+  local classpath_value
+
+  classpath_value=$(container_env_value "CLASSPATH")
+  if [[ "${classpath_value}" == *"exist.uber.jar"* ]] && [[ "${classpath_value}" != *"${PLUGIN_JAR_FILENAME}"* ]]; then
+    cat >&2 <<EOF
+Container ${EXISTDB_CONTAINER_NAME} starts eXist from exist.uber.jar and its CLASSPATH does not include ${PLUGIN_JAR_FILENAME}.
+
+For the official Docker image, startup.xml is not enough for custom plugin JARs. Start the container with the plugin JAR already on CLASSPATH, for example:
+
+  -e CLASSPATH=/exist/lib/exist.uber.jar:/exist/lib/${PLUGIN_JAR_FILENAME}
+
+and bake or mount the JAR at that path before restart.
+EOF
+    return 1
+  fi
+}
+
+wait_for_container_ready() {
+  local health state
+
+  for _ in $(seq 1 60); do
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}' "${EXISTDB_CONTAINER_NAME}" 2>/dev/null || true)
+    state=$(docker inspect --format '{{.State.Status}}' "${EXISTDB_CONTAINER_NAME}" 2>/dev/null || true)
+    if [[ "${health}" == "healthy" ]] || [[ "${state}" == "running" && "${health}" == "no-health" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Container ${EXISTDB_CONTAINER_NAME} did not become ready in time." >&2
+  docker logs "${EXISTDB_CONTAINER_NAME}" | tail -n 100 >&2 || true
+  return 1
+}
+
+container_path_exists() {
+  local container_path=$1
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  if docker cp "${EXISTDB_CONTAINER_NAME}:${container_path}" "${tmp_dir}/probe" >/dev/null 2>&1; then
+    rm -rf "${tmp_dir}"
+    return 0
+  fi
+  rm -rf "${tmp_dir}"
+  return 1
 }
 
 client_query_admin() {
@@ -79,7 +128,7 @@ resolve_container_file() {
   shift
 
   if [[ -n "${override_value}" ]]; then
-    if container_sh "[ -f $(printf '%q' "${override_value}") ]"; then
+    if container_path_exists "${override_value}"; then
       printf '%s' "${override_value}"
       return 0
     fi
@@ -89,7 +138,7 @@ resolve_container_file() {
 
   local candidate
   for candidate in "$@"; do
-    if container_sh "[ -f $(printf '%q' "${candidate}") ]"; then
+    if container_path_exists "${candidate}"; then
       printf '%s' "${candidate}"
       return 0
     fi
@@ -104,7 +153,7 @@ resolve_container_dir() {
   shift
 
   if [[ -n "${override_value}" ]]; then
-    if container_sh "[ -d $(printf '%q' "${override_value}") ]"; then
+    if container_path_exists "${override_value}"; then
       printf '%s' "${override_value}"
       return 0
     fi
@@ -114,7 +163,7 @@ resolve_container_dir() {
 
   local candidate
   for candidate in "$@"; do
-    if container_sh "[ -d $(printf '%q' "${candidate}") ]"; then
+    if container_path_exists "${candidate}"; then
       printf '%s' "${candidate}"
       return 0
     fi
@@ -176,15 +225,25 @@ copy_tmp_file_to_container() {
 }
 
 install_plugin() {
-  local plugin_lib_dir container_jar_path
+  local plugin_lib_dir container_jar_path tmp_dir existing_jar
 
   require_plugin_artifact
   require_container_running
   plugin_lib_dir=$(resolve_remote_plugin_lib_dir)
   container_jar_path="${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
 
+  if container_path_exists "${container_jar_path}"; then
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+    existing_jar="${tmp_dir}/installed.jar"
+    copy_container_file_to_tmp "${container_jar_path}" "${existing_jar}"
+    if cmp -s "${PLUGIN_JAR_PATH}" "${existing_jar}"; then
+      echo "[remote] Plugin JAR already installed at ${container_jar_path}"
+      return 0
+    fi
+  fi
+
   echo "[remote] Installing plugin JAR into ${container_jar_path}"
-  container_sh "rm -f $(printf '%q' "${plugin_lib_dir}")/${PLUGIN_ARTIFACT_ID}-assembly-*.jar"
   docker cp "${PLUGIN_JAR_PATH}" "${EXISTDB_CONTAINER_NAME}:${container_jar_path}"
 }
 
@@ -232,24 +291,27 @@ configure_startup() {
 
 restart_exist() {
   if [[ -n "${EXIST_STAGE_RESTART_CMD:-}" ]]; then
-    run_optional_hook "[remote] eXist restart" "${EXIST_STAGE_RESTART_CMD}" true
+    run_optional_hook "[remote] eXist restart" "${EXIST_STAGE_RESTART_CMD}" true || return 1
+    wait_for_container_ready
     return $?
   fi
 
   echo "[remote] Restarting container ${EXISTDB_CONTAINER_NAME}"
   docker restart "${EXISTDB_CONTAINER_NAME}" >/dev/null
+  wait_for_container_ready
 }
 
 verify_static_state() {
   local conf_xml startup_xml plugin_lib_dir container_jar_path tmp_dir conf_tmp startup_tmp
 
   require_container_running
+  verify_runtime_classpath
   conf_xml=$(resolve_remote_conf_xml)
   startup_xml=$(resolve_remote_startup_xml)
   plugin_lib_dir=$(resolve_remote_plugin_lib_dir)
   container_jar_path="${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
 
-  if ! container_sh "[ -f $(printf '%q' "${container_jar_path}") ]"; then
+  if ! container_path_exists "${container_jar_path}"; then
     echo "Plugin JAR is missing from ${container_jar_path}" >&2
     return 1
   fi
@@ -308,15 +370,20 @@ run_smoke_test() {
     return 1
   fi
 
-  sleep 2
   data_dir=$(resolve_remote_data_dir)
-  found_file=$(docker exec "${EXISTDB_CONTAINER_NAME}" find "${data_dir}/algolia-index/indexes/${SMOKE_INDEX_NAME}" -type f -name '*.json' -newer "${container_smoke_doc}" 2>/dev/null | head -n 1)
+  local index_dir="${data_dir}/algolia-index/indexes/${SMOKE_INDEX_NAME}"
+  local copied_index_dir="${tmp_dir}/index-copy"
+  if ! docker cp "${EXISTDB_CONTAINER_NAME}:${index_dir}" "${copied_index_dir}" >/dev/null 2>&1; then
+    echo "No local Algolia store directory was created at ${index_dir}" >&2
+    return 1
+  fi
+  found_file=$(find "${copied_index_dir}" -type f -name '*.json' | head -n 1)
   if [[ -z "${found_file}" ]]; then
-    echo "No new local Algolia store file was created under ${data_dir}/algolia-index/indexes/${SMOKE_INDEX_NAME}" >&2
+    echo "No local Algolia store JSON file was created under ${index_dir}" >&2
     return 1
   fi
 
-  echo "[remote] Smoke reindex wrote ${found_file}"
+  echo "[remote] Smoke reindex wrote $(basename "${found_file}")"
   delete_algolia_index "${SMOKE_INDEX_NAME}"
 }
 
@@ -362,6 +429,7 @@ main() {
     run)
       require_prereqs
       require_secrets
+      wait_for_container_ready
       run_all
       ;;
     help|-h|--help)
