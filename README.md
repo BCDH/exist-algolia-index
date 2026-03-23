@@ -1,6 +1,6 @@
 # eXist-db Indexer for Algolia
 
-![Build Status](https://github.com/BCDH/exist-algolia-index/actions/workflows/ci.yml/badge.svg) [![Scala 2.13+](https://img.shields.io/badge/scala-2.13+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html) [![Download](https://img.shields.io/badge/download-version%201.0-ff69b4.svg)](http://search.maven.org/remotecontent?filepath=org/humanistika/exist/index/algolia/exist-algolia-index_2.13/1.0/exist-algolia-index_2.13-1.0-assembly.jar)
+![Build Status](https://github.com/BCDH/exist-algolia-index/actions/workflows/ci.yml/badge.svg) [![Scala 2.13+](https://img.shields.io/badge/scala-2.13+-dc322f.svg)](http://scala-lang.org) [![License GPL 3](https://img.shields.io/badge/license-GPL%203-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
 
@@ -21,6 +21,7 @@ This project is installed as an **eXist plugin JAR**, not as an EXPath/XAR packa
 4. ensure `etc/startup.xml` contains the plugin dependency entry
 5. restart eXist
 6. verify the install and run a smoke reindex
+7. reindex existing configured collections into Algolia, which `run` now does by default
 
 The repo now includes local and staging install scripts for that flow.
 
@@ -58,6 +59,7 @@ EXIST_CONF_XML=/path/to/exist-db/etc/conf.xml
 EXIST_STARTUP_XML=/path/to/exist-db/etc/startup.xml
 EXIST_PLUGIN_LIB_DIR=/path/to/exist-db/lib
 EXIST_RESTART_CMD="/path/to/exist-db/bin/startup.sh restart"
+EXIST_REINDEX_COLLECTION=/db/dictionaries/vuk
 ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
 ```
 
@@ -67,6 +69,30 @@ Run the full local flow:
 ./scripts/exist-local.sh run
 ```
 
+Set the default reindex target in `.env`:
+
+```bash
+EXIST_REINDEX_COLLECTION=/db/dictionaries/vuk
+```
+
+Then run without parameters:
+
+```bash
+./scripts/exist-local.sh run
+```
+
+Override that default once from the command line:
+
+```bash
+./scripts/exist-local.sh run /db/dictionaries/vuk
+```
+
+Skip the post-install reindex explicitly:
+
+```bash
+./scripts/exist-local.sh run --skip-reindex
+```
+
 Useful subcommands:
 
 ```bash
@@ -74,6 +100,7 @@ Useful subcommands:
 ./scripts/exist-local.sh install-plugin
 ./scripts/exist-local.sh configure-plugin
 ./scripts/exist-local.sh configure-startup
+./scripts/exist-local.sh reindex-collection /db/my-collection
 ./scripts/exist-local.sh restart
 ./scripts/exist-local.sh verify
 ```
@@ -81,9 +108,13 @@ Useful subcommands:
 Notes:
 
 - `run` will build, install, patch `conf.xml`, patch `startup.xml`, restart eXist if `EXIST_RESTART_CMD` is configured, and then verify the install.
+- after a successful `run`, the script reindexes `/db` by default so existing configured collections are backfilled into Algolia.
+- set `EXIST_REINDEX_COLLECTION=/db/my-collection` or pass `/db/my-collection` to `run` if you want a narrower default target than `/db`.
+- pass `--skip-reindex` only if you explicitly do not want the post-install backfill step.
 - if `EXIST_RESTART_CMD` is not configured, `run` stops after preparing the files and exits with a clear “restart required before verification” message.
 - `verify` performs a smoke reindex using the admin account, so `EXIST_LOCAL_ADMIN_PASSWORD` is required.
-- the smoke check verifies both the local store and the remote Algolia upload, then attempts to delete the temporary Algolia index.
+- the smoke check verifies both the local store and the remote Algolia upload, then removes the temporary smoke resources from eXist and deletes the temporary Algolia index before the default backfill step can run.
+- `reindex-collection /db/my-collection` is the real backfill step for collections that already contain data before the plugin was installed.
 
 ### Staging Deploy
 
@@ -126,6 +157,7 @@ EXIST_STAGE_CONF_XML=/exist/etc/conf.xml
 EXIST_STAGE_STARTUP_XML=/exist/etc/startup.xml
 EXIST_STAGE_PLUGIN_LIB_DIR=/exist/lib
 EXIST_STAGE_RESTART_CMD="docker restart existdb-stage"
+EXIST_REINDEX_COLLECTION=/db/dictionaries/vuk
 ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
 ```
 
@@ -135,19 +167,75 @@ Run the full staging flow from this checkout:
 ./scripts/exist-stage.sh run
 ```
 
+Set the default reindex target in `.env`:
+
+```bash
+EXIST_REINDEX_COLLECTION=/db/dictionaries/vuk
+```
+
+Then run without parameters:
+
+```bash
+./scripts/exist-stage.sh run
+```
+
+Override that default once from the command line:
+
+```bash
+./scripts/exist-stage.sh run /db/dictionaries/vuk
+```
+
+Skip the post-install reindex explicitly:
+
+```bash
+./scripts/exist-stage.sh run --skip-reindex
+```
+
 Useful subcommands:
 
 ```bash
 ./scripts/exist-stage.sh build
 ./scripts/exist-stage.sh upload --skip-build
 ./scripts/exist-stage.sh deploy --skip-build
+./scripts/exist-stage.sh reindex-collection /db/my-collection
 ```
 
 Notes:
 
 - the remote helper is `./scripts/exist-stage-remote.sh`; `exist-stage.sh` uploads it automatically and executes it over SSH
+- after a successful `run`, the remote helper reindexes `/db` by default so existing configured collections are backfilled into Algolia
+- set `EXIST_REINDEX_COLLECTION=/db/my-collection` or pass `/db/my-collection` to `run` if you want a narrower default target than `/db`
+- pass `--skip-reindex` only if you explicitly do not want the post-install backfill step
 - if `EXIST_STAGE_RESTART_CMD` is unset, the remote helper defaults to `docker restart ${EXISTDB_CONTAINER_NAME}`
-- the staging smoke check verifies both the local store and the remote Algolia upload, then attempts to delete the temporary Algolia index
+- the staging smoke check verifies both the local store and the remote Algolia upload, then removes the temporary smoke resources from eXist and deletes the temporary Algolia index before the default backfill step can run
+- `reindex-collection /db/my-collection` is the real backfill step for collections that already exist in the database
+
+### Backfill Existing Data
+
+Installing the plugin does not automatically upload documents that were already present in eXist before installation unless you run a reindex. The default `run` workflow now performs that reindex automatically after a successful install and smoke verification. The temporary smoke collection used by `verify` is cleaned up before that backfill runs.
+
+By default the reindex target is `/db`. In normal use, set `EXIST_REINDEX_COLLECTION` in `.env` to the collection you want to backfill. Pass the collection path directly to `run` only as a one-off override.
+
+Local example:
+
+```bash
+./scripts/exist-local.sh run /db/dictionaries/vuk
+```
+
+Staging example:
+
+```bash
+./scripts/exist-stage.sh run /db/dictionaries/vuk
+```
+
+Manual backfill is still available if you want to run it separately:
+
+```bash
+./scripts/exist-local.sh reindex-collection /db/dictionaries/vuk
+./scripts/exist-stage.sh reindex-collection /db/dictionaries/vuk
+```
+
+If a collection is configured with an `<algolia>` block in its `collection.xconf`, that reindex will trigger the plugin to rebuild the local store and push the corresponding records to Algolia.
 
 ### Manual install reference
 

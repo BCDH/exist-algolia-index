@@ -14,17 +14,20 @@ EXIST_STAGE_ADMIN_PASSWORD=${EXIST_STAGE_ADMIN_PASSWORD:-${EXIST_ADMIN_PASSWORD:
 
 usage() {
   cat <<'EOF'
-Usage: scripts/exist-stage.sh <command> [--skip-build]
+Usage: scripts/exist-stage.sh <command> [--skip-build] [--skip-reindex] [collection-path]
 
 Commands:
   build            Build the plugin assembly JAR locally.
   upload           Upload the plugin artifact and helper scripts to the staging host.
   deploy           Upload artifacts and execute the remote staging helper.
-  run              Alias for deploy.
+  reindex-collection
+                  Reindex one configured collection on the remote eXist host.
+  run              Alias for deploy; reindexes by default after successful install.
   help             Show this help message.
 
 Options:
   --skip-build     Reuse the existing local assembly JAR instead of rebuilding it.
+  --skip-reindex   Skip the default post-install reindex step.
 
 Required environment for upload:
   EXIST_STAGE_HOST
@@ -44,6 +47,7 @@ Optional environment:
   EXIST_STAGE_PLUGIN_LIB_DIR=/exist/lib
   EXIST_STAGE_RESTART_CMD="docker restart existdb-stage"
   ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
+  EXIST_REINDEX_COLLECTION=/db
 EOF
 }
 
@@ -92,6 +96,16 @@ upload_payload() {
   require_plugin_artifact
 
   echo "[stage] Uploading project metadata"
+  upload_helper_files
+
+  echo "[stage] Uploading plugin artifact"
+  copy_to_remote \
+    "${PLUGIN_JAR_PATH}" \
+    "$(remote_target):${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}/${PLUGIN_JAR_FILENAME}"
+}
+
+upload_helper_files() {
+  echo "[stage] Uploading project metadata"
   copy_to_remote \
     "${ROOT_DIR}/build.sbt" \
     "${ROOT_DIR}/version.sbt" \
@@ -103,16 +117,15 @@ upload_payload() {
     "${ROOT_DIR}/scripts/exist-stage-remote.sh" \
     "${ROOT_DIR}/scripts/manage-exist-config.py" \
     "$(remote_target):${EXIST_STAGE_REMOTE_DIR}/scripts/"
-
-  echo "[stage] Uploading plugin artifact"
-  copy_to_remote \
-    "${PLUGIN_JAR_PATH}" \
-    "$(remote_target):${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}/${PLUGIN_JAR_FILENAME}"
 }
 
 run_remote_helper() {
+  local remote_command=${1:-run}
+  local collection_path=${2:-}
+  local skip_reindex=${3:-0}
   local remote_script="${EXIST_STAGE_REMOTE_DIR}/scripts/exist-stage-remote.sh"
-  local remote_dir_quoted container_quoted stage_password_quoted app_id_quoted api_key_quoted conf_quoted startup_quoted lib_quoted restart_quoted smoke_index_quoted
+  local remote_dir_quoted container_quoted stage_password_quoted app_id_quoted api_key_quoted conf_quoted startup_quoted lib_quoted restart_quoted smoke_index_quoted reindex_quoted skip_reindex_quoted
+  local remote_command_quoted collection_path_quoted
 
   remote_dir_quoted=$(printf '%q' "${EXIST_STAGE_REMOTE_DIR}")
   container_quoted=$(printf '%q' "${EXISTDB_CONTAINER_NAME}")
@@ -124,9 +137,13 @@ run_remote_helper() {
   lib_quoted=$(printf '%q' "${EXIST_STAGE_PLUGIN_LIB_DIR:-}")
   restart_quoted=$(printf '%q' "${EXIST_STAGE_RESTART_CMD:-}")
   smoke_index_quoted=$(printf '%q' "${ALGOLIA_SMOKE_INDEX_NAME:-}")
+  reindex_quoted=$(printf '%q' "${EXIST_REINDEX_COLLECTION:-}")
+  skip_reindex_quoted=$(printf '%q' "${skip_reindex}")
+  remote_command_quoted=$(printf '%q' "${remote_command}")
+  collection_path_quoted=$(printf '%q' "${collection_path}")
 
   echo "[stage] Executing remote helper on $(remote_target)"
-  remote_cmd "cd ${remote_dir_quoted} && EXISTDB_CONTAINER_NAME=${container_quoted} EXIST_STAGE_ADMIN_PASSWORD=${stage_password_quoted} ALGOLIA_APPLICATION_ID=${app_id_quoted} ALGOLIA_ADMIN_API_KEY=${api_key_quoted} EXIST_STAGE_CONF_XML=${conf_quoted} EXIST_STAGE_STARTUP_XML=${startup_quoted} EXIST_STAGE_PLUGIN_LIB_DIR=${lib_quoted} EXIST_STAGE_RESTART_CMD=${restart_quoted} ALGOLIA_SMOKE_INDEX_NAME=${smoke_index_quoted} bash $(printf '%q' "${remote_script}") run"
+  remote_cmd "cd ${remote_dir_quoted} && EXISTDB_CONTAINER_NAME=${container_quoted} EXIST_STAGE_ADMIN_PASSWORD=${stage_password_quoted} ALGOLIA_APPLICATION_ID=${app_id_quoted} ALGOLIA_ADMIN_API_KEY=${api_key_quoted} EXIST_STAGE_CONF_XML=${conf_quoted} EXIST_STAGE_STARTUP_XML=${startup_quoted} EXIST_STAGE_PLUGIN_LIB_DIR=${lib_quoted} EXIST_STAGE_RESTART_CMD=${restart_quoted} ALGOLIA_SMOKE_INDEX_NAME=${smoke_index_quoted} EXIST_REINDEX_COLLECTION=${reindex_quoted} EXIST_SKIP_REINDEX=${skip_reindex_quoted} bash $(printf '%q' "${remote_script}") ${remote_command_quoted} ${collection_path_quoted}"
 }
 
 maybe_build() {
@@ -156,17 +173,36 @@ upload_only() {
 
 deploy_all() {
   local skip_build=$1
+  local skip_reindex=$2
+  local collection_path=${3:-}
 
   require_stage_prereqs
   require_stage_target
   require_stage_secrets
   upload_only "${skip_build}"
-  run_remote_helper
+  run_remote_helper run "${collection_path}" "${skip_reindex}"
+}
+
+reindex_remote_collection() {
+  local collection_path=$1
+
+  require_stage_prereqs
+  require_stage_target
+  require_stage_secrets
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/my-collection" >&2
+    exit 1
+  fi
+  prepare_remote_tree
+  upload_helper_files
+  run_remote_helper reindex-collection "${collection_path}"
 }
 
 main() {
   local command=${1:-help}
   local skip_build=0
+  local skip_reindex=0
+  local collection_path=
 
   shift $(( $# > 0 ? 1 : 0 ))
   while [[ $# -gt 0 ]]; do
@@ -174,9 +210,15 @@ main() {
       --skip-build)
         skip_build=1
         ;;
+      --skip-reindex)
+        skip_reindex=1
+        ;;
       help|-h|--help)
         usage
         return 0
+        ;;
+      /db|/db/*)
+        collection_path=$1
         ;;
       *)
         echo "Unknown option: $1" >&2
@@ -194,8 +236,11 @@ main() {
     upload)
       upload_only "${skip_build}"
       ;;
+    reindex-collection)
+      reindex_remote_collection "${collection_path}"
+      ;;
     deploy|run)
-      deploy_all "${skip_build}"
+      deploy_all "${skip_build}" "${skip_reindex}" "${collection_path}"
       ;;
     help|-h|--help)
       usage

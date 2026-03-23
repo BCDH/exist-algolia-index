@@ -15,15 +15,16 @@ REMOTE_PLUGIN_LIB_DIR=${EXIST_STAGE_PLUGIN_LIB_DIR:-}
 
 usage() {
   cat <<'EOF'
-Usage: scripts/exist-stage-remote.sh <command>
+Usage: scripts/exist-stage-remote.sh <command> [collection-path]
 
 Commands:
   install-plugin     Copy the plugin JAR into the running eXist container.
   configure-plugin   Ensure conf.xml contains the Algolia module stanza.
   configure-startup  Ensure startup.xml contains the plugin dependency entry.
+  reindex-collection Reindex one configured collection to backfill Algolia.
   restart            Restart the eXist container or run EXIST_STAGE_RESTART_CMD.
   verify             Verify install state and run the smoke reindex check.
-  run                Execute the full staging install flow.
+  run                Execute the full staging install flow and reindex by default.
   help               Show this help message.
 EOF
 }
@@ -47,6 +48,27 @@ require_container_running() {
     echo "eXist-db container is not running: ${EXISTDB_CONTAINER_NAME}" >&2
     exit 1
   fi
+}
+
+require_collection_path() {
+  local collection_path=$1
+
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/my-collection" >&2
+    exit 1
+  fi
+
+  if [[ "${collection_path}" != /db/* && "${collection_path}" != "/db" ]]; then
+    echo "Collection path must start with /db: ${collection_path}" >&2
+    exit 1
+  fi
+}
+
+resolve_reindex_collection() {
+  local override_value=${1:-}
+  local collection_path=${override_value:-${EXIST_REINDEX_COLLECTION:-/db}}
+  require_collection_path "${collection_path}"
+  printf '%s' "${collection_path}"
 }
 
 container_env_value() {
@@ -386,7 +408,9 @@ run_smoke_test() {
   echo "[remote] Smoke reindex wrote $(basename "${found_file}")"
   algolia_summary=$(wait_for_algolia_smoke_upload "${SMOKE_INDEX_NAME}")
   echo "[remote] Smoke upload reached Algolia: ${algolia_summary}"
+  client_query_admin "$(cleanup_smoke_resources_query)" >/dev/null
   delete_algolia_index "${SMOKE_INDEX_NAME}"
+  wait_for_algolia_index_deletion "${SMOKE_INDEX_NAME}"
 }
 
 verify_install() {
@@ -394,16 +418,36 @@ verify_install() {
   run_smoke_test
 }
 
+reindex_collection() {
+  local collection_path=$1
+  local output
+
+  require_collection_path "${collection_path}"
+  output=$(client_query_admin "$(reindex_collection_query "${collection_path}")")
+  echo "${output}"
+  if ! grep -q "true" <<<"${output}"; then
+    echo "Reindex failed for ${collection_path}" >&2
+    return 1
+  fi
+
+  echo "[remote] Reindex completed for ${collection_path}"
+}
+
 run_all() {
+  local collection_path=${1:-}
+
   install_plugin
   configure_plugin
   configure_startup
   restart_exist
   verify_install
+  collection_path=$(resolve_reindex_collection "${collection_path}")
+  reindex_collection "${collection_path}"
 }
 
 main() {
   local command=${1:-help}
+  local collection_path=${2:-}
 
   case "${command}" in
     install-plugin)
@@ -419,6 +463,12 @@ main() {
       require_prereqs
       configure_startup
       ;;
+    reindex-collection)
+      require_prereqs
+      require_secrets
+      verify_runtime_classpath
+      reindex_collection "${collection_path}"
+      ;;
     restart)
       require_prereqs
       restart_exist
@@ -432,7 +482,15 @@ main() {
       require_prereqs
       require_secrets
       wait_for_container_ready
-      run_all
+      if [[ "${EXIST_SKIP_REINDEX:-0}" == "1" ]]; then
+        install_plugin
+        configure_plugin
+        configure_startup
+        restart_exist
+        verify_install
+      else
+        run_all "${collection_path}"
+      fi
       ;;
     help|-h|--help)
       usage
@@ -445,4 +503,4 @@ main() {
   esac
 }
 
-main "${1:-help}"
+main "$@"

@@ -11,16 +11,17 @@ EXIST_LOCAL_ADMIN_PASSWORD=${EXIST_LOCAL_ADMIN_PASSWORD:-${EXIST_ADMIN_PASSWORD:
 
 usage() {
   cat <<'EOF'
-Usage: scripts/exist-local.sh <command>
+Usage: scripts/exist-local.sh <command> [--skip-reindex] [collection-path]
 
 Commands:
   build              Build the plugin assembly JAR with sbt.
   install-plugin     Copy the plugin JAR into the local eXist lib directory.
   configure-plugin   Ensure conf.xml contains the Algolia index module stanza.
   configure-startup  Ensure startup.xml contains the plugin dependency entry.
+  reindex-collection Reindex one configured collection to backfill Algolia.
   restart            Restart eXist using EXIST_RESTART_CMD if configured.
   verify             Verify install state and run the smoke reindex check.
-  run                Build, install, configure, restart if configured, then verify.
+  run                Build, install, configure, restart if configured, verify, then reindex.
   help               Show this help message.
 
 Required environment:
@@ -38,7 +39,29 @@ Optional environment:
   EXIST_PLUGIN_LIB_DIR
   EXIST_RESTART_CMD
   ALGOLIA_SMOKE_INDEX_NAME
+  EXIST_REINDEX_COLLECTION=/db
 EOF
+}
+
+require_collection_path() {
+  local collection_path=$1
+
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/my-collection" >&2
+    exit 1
+  fi
+
+  if [[ "${collection_path}" != /db/* && "${collection_path}" != "/db" ]]; then
+    echo "Collection path must start with /db: ${collection_path}" >&2
+    exit 1
+  fi
+}
+
+resolve_reindex_collection() {
+  local override_value=${1:-}
+  local collection_path=${override_value:-${EXIST_REINDEX_COLLECTION:-/db}}
+  require_collection_path "${collection_path}"
+  printf '%s' "${collection_path}"
 }
 
 require_local_admin() {
@@ -202,7 +225,9 @@ run_smoke_test() {
   echo "Smoke reindex wrote ${found_file}"
   algolia_summary=$(wait_for_algolia_smoke_upload "${SMOKE_INDEX_NAME}")
   echo "Smoke upload reached Algolia: ${algolia_summary}"
+  local_client_query "$(cleanup_smoke_resources_query)" >/dev/null
   delete_algolia_index "${SMOKE_INDEX_NAME}"
+  wait_for_algolia_index_deletion "${SMOKE_INDEX_NAME}"
 }
 
 verify_install() {
@@ -234,7 +259,22 @@ verify_install() {
   run_smoke_test
 }
 
-run_all() {
+reindex_collection() {
+  local collection_path=$1
+  local output
+
+  require_collection_path "${collection_path}"
+  output=$(local_client_query "$(reindex_collection_query "${collection_path}")")
+  echo "${output}"
+  if ! grep -q "true" <<<"${output}"; then
+    echo "Reindex failed for ${collection_path}" >&2
+    return 1
+  fi
+
+  echo "Reindex completed for ${collection_path}"
+}
+
+install_and_verify() {
   local restart_status=0
 
   build_cmd
@@ -251,12 +291,48 @@ run_all() {
     echo "eXist restart is not configured. Installation files were updated, but restart is required before verification." >&2
     return 2
   fi
+  if [[ "${restart_status}" -ne 0 ]]; then
+    echo "eXist restart failed; stopping before verification." >&2
+    return 1
+  fi
 
   verify_install "${EXIST_LAST_RESTART_LOG:-}"
 }
 
+run_all() {
+  local collection_path=${1:-}
+
+  install_and_verify
+  collection_path=$(resolve_reindex_collection "${collection_path}")
+  reindex_collection "${collection_path}"
+}
+
 main() {
   local command=${1:-help}
+  local collection_path=
+  local skip_reindex=0
+
+  shift $(( $# > 0 ? 1 : 0 ))
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --skip-reindex)
+        skip_reindex=1
+        ;;
+      /db|/db/*)
+        collection_path=$1
+        ;;
+      help|-h|--help)
+        usage
+        return 0
+        ;;
+      *)
+        echo "Unknown option: $1" >&2
+        usage >&2
+        return 1
+        ;;
+    esac
+    shift
+  done
 
   case "${command}" in
     build)
@@ -271,6 +347,9 @@ main() {
     configure-startup)
       configure_startup
       ;;
+    reindex-collection)
+      reindex_collection "${collection_path}"
+      ;;
     restart)
       restart_exist
       ;;
@@ -278,7 +357,11 @@ main() {
       verify_install "${EXIST_LAST_RESTART_LOG:-}"
       ;;
     run)
-      run_all
+      if [[ "${skip_reindex}" -eq 1 ]]; then
+        install_and_verify
+      else
+        run_all "${collection_path}"
+      fi
       ;;
     help|-h|--help)
       usage
@@ -291,4 +374,4 @@ main() {
   esac
 }
 
-main "${1:-help}"
+main "$@"

@@ -249,6 +249,31 @@ xmldb:reindex("${collection_path}")
 EOF
 }
 
+cleanup_smoke_resources_query() {
+  cat <<EOF
+xquery version "3.1";
+import module namespace xmldb="http://exist-db.org/xquery/xmldb";
+let \$targets := (
+  map {
+    "collection": "${SMOKE_COLLECTION_PATH}",
+    "resources": ("${SMOKE_DOC_FILENAME}")
+  },
+  map {
+    "collection": "${SMOKE_CONFIG_COLLECTION_PATH}",
+    "resources": ("${SMOKE_CONFIG_FILENAME}")
+  }
+)
+return
+  for \$target in \$targets
+  let \$collection := \$target?collection
+  where xmldb:collection-available(\$collection)
+  return
+    for \$resource in \$target?resources
+    where some \$name in xmldb:get-child-resources(\$collection) satisfies \$name = \$resource
+    return xmldb:remove(\$collection, \$resource)
+EOF
+}
+
 delete_algolia_index() {
   local index_name=$1
 
@@ -264,15 +289,22 @@ delete_algolia_index() {
   local encoded_index
   encoded_index=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${index_name}")
 
-  curl -fsS -X DELETE \
+  if curl -fsS -X DELETE \
     -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
     -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
-    "https://${ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1 || \
-  curl -fsS -X DELETE \
+    "https://${ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if curl -fsS -X DELETE \
     -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
     -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
-    "https://${ALGOLIA_APPLICATION_ID}.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1 || \
+    "https://${ALGOLIA_APPLICATION_ID}.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
+    return 0
+  fi
+
   echo "Warning: failed to delete Algolia smoke index ${index_name}; clean it up manually if needed." >&2
+  return 1
 }
 
 algolia_query_index() {
@@ -339,6 +371,31 @@ PY
 
     if (( $(date +%s) - started_at >= timeout_seconds )); then
       echo "Timed out waiting for Algolia smoke index ${index_name} to become searchable." >&2
+      return 1
+    fi
+
+    sleep 2
+  done
+}
+
+wait_for_algolia_index_deletion() {
+  local index_name=$1
+  local timeout_seconds=${2:-60}
+  local started_at response
+
+  require_algolia_credentials
+  require_cmd curl
+  require_cmd python3
+
+  started_at=$(date +%s)
+  while :; do
+    response=$(algolia_query_index "${index_name}" '{"query":"","hitsPerPage":1}' 2>/dev/null || true)
+    if [[ -z "${response}" ]]; then
+      return 0
+    fi
+
+    if (( $(date +%s) - started_at >= timeout_seconds )); then
+      echo "Timed out waiting for Algolia smoke index ${index_name} to be deleted." >&2
       return 1
     fi
 
