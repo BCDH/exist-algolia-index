@@ -116,21 +116,42 @@ EOF
 
 default_local_restart_cmd() {
   local runtime_mode=$1
-  local startup_script shutdown_script
 
-  startup_script=$(resolve_local_startup_script)
   if [[ "${runtime_mode}" == "stopped" ]]; then
-    printf 'nohup %q >/tmp/exist-algolia-index-startup.log 2>&1 </dev/null &' "${startup_script}"
+    default_local_start_cmd
     return 0
   fi
 
+  default_local_shutdown_cmd
+}
+
+default_local_start_cmd() {
+  local startup_script
+  startup_script=$(resolve_local_startup_script)
+  printf 'nohup %q >/tmp/exist-algolia-index-startup.log 2>&1 </dev/null &' "${startup_script}"
+}
+
+default_local_shutdown_cmd() {
+  local shutdown_script
+
   require_local_admin
   shutdown_script=$(resolve_local_shutdown_script)
-  printf '%q -u %q -p %q; sleep 5; nohup %q >/tmp/exist-algolia-index-startup.log 2>&1 </dev/null &' \
+  printf '%q -u %q -p %q' \
     "${shutdown_script}" \
     "${EXIST_ADMIN_USER}" \
-    "${EXIST_LOCAL_ADMIN_PASSWORD}" \
-    "${startup_script}"
+    "${EXIST_LOCAL_ADMIN_PASSWORD}"
+}
+
+wait_for_local_stop() {
+  for _ in $(seq 1 60); do
+    if [[ "$(local_exist_runtime_mode)" == "stopped" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Local eXist did not stop in time." >&2
+  return 1
 }
 
 wait_for_local_ready() {
@@ -142,6 +163,7 @@ wait_for_local_ready() {
   for _ in $(seq 1 60); do
     if "${client_cmd}" \
       --no-gui \
+      --no-embedded-mode \
       -u "${EXIST_ADMIN_USER}" \
       -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
       -x "1" >/dev/null 2>&1; then
@@ -162,6 +184,7 @@ local_client_query() {
 
   "${client_cmd}" \
     --no-gui \
+    --no-embedded-mode \
     -u "${EXIST_ADMIN_USER}" \
     -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
     -x "${query}"
@@ -174,6 +197,7 @@ local_client_collection_cmd() {
 
   "${client_cmd}" \
     --no-gui \
+    --no-embedded-mode \
     -u "${EXIST_ADMIN_USER}" \
     -P "${EXIST_LOCAL_ADMIN_PASSWORD}" \
     "$@"
@@ -233,22 +257,46 @@ configure_startup() {
 }
 
 restart_exist() {
-  local restart_log runtime_mode restart_cmd
+  local restart_log runtime_mode restart_cmd shutdown_cmd start_cmd
 
   ensure_local_automation_allowed || return 1
   runtime_mode=$(local_exist_runtime_mode)
   restart_cmd=${EXIST_RESTART_CMD:-}
-  if [[ -z "${restart_cmd}" ]] && is_macos_app_bundle_install; then
-    restart_cmd=$(default_local_restart_cmd "${runtime_mode}")
+  if [[ -n "${restart_cmd}" ]]; then
+    restart_log=$(mktemp -t exist-algolia-index-restart.XXXXXX.log)
+    echo "Local eXist restart: ${restart_cmd}"
+    if bash -lc "${restart_cmd}" >"${restart_log}" 2>&1 && wait_for_local_ready >>"${restart_log}" 2>&1; then
+      echo "Local eXist restart completed. Log: ${restart_log}"
+      export EXIST_LAST_RESTART_LOG="${restart_log}"
+      return 0
+    fi
+
+    echo "Local eXist restart failed. Log: ${restart_log}" >&2
+    cat "${restart_log}" >&2
+    return 1
   fi
-  if [[ -z "${restart_cmd}" ]]; then
+
+  if ! is_macos_app_bundle_install; then
     echo "Local eXist restart not configured; skipping."
     return 2
   fi
 
   restart_log=$(mktemp -t exist-algolia-index-restart.XXXXXX.log)
-  echo "Local eXist restart: ${restart_cmd}"
-  if bash -lc "${restart_cmd}" >"${restart_log}" 2>&1 && wait_for_local_ready >>"${restart_log}" 2>&1; then
+  : >"${restart_log}"
+
+  if [[ "${runtime_mode}" != "stopped" ]]; then
+    shutdown_cmd=$(default_local_shutdown_cmd)
+    echo "Local eXist shutdown: ${shutdown_cmd}"
+    if ! bash -lc "${shutdown_cmd}" >"${restart_log}" 2>&1 || ! wait_for_local_stop >>"${restart_log}" 2>&1; then
+      echo "Local eXist shutdown failed. Log: ${restart_log}" >&2
+      cat "${restart_log}" >&2
+      return 1
+    fi
+  fi
+
+  start_cmd=$(default_local_start_cmd)
+  echo "Local eXist startup: ${start_cmd}"
+  if bash -lc "${start_cmd}" >>"${restart_log}" 2>&1 && wait_for_local_ready >>"${restart_log}" 2>&1; then
     echo "Local eXist restart completed. Log: ${restart_log}"
     export EXIST_LAST_RESTART_LOG="${restart_log}"
     return 0

@@ -19,6 +19,7 @@ package org.humanistika.exist.index.algolia.backend
 
 import java.io.StringWriter
 import java.nio.file.{Files, Path}
+import java.util.Arrays
 import java.util.stream.Collectors
 import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.gracefulStop
@@ -256,6 +257,19 @@ object IndexLocalStoreDocumentActor {
   case class RemoveDocument(documentId: DocumentId, userSpecifiedDocumnentId: Option[String], maybeTimestamp: Option[Timestamp])
   case class RemovedDocument(documentId: DocumentId)
 
+  private[algolia] def sameChecksum(prev: Either[Throwable, Array[Byte]], current: Either[Throwable, Array[Byte]]): Either[Seq[Throwable], Boolean] = {
+    (prev, current) match {
+      case (Right(prevBytes), Right(currentBytes)) =>
+        Right(Arrays.equals(prevBytes, currentBytes))
+      case (Left(prevError), Left(currentError)) =>
+        Left(Seq(prevError, currentError))
+      case (Left(prevError), _) =>
+        Left(Seq(prevError))
+      case (_, Left(currentError)) =>
+        Left(Seq(currentError))
+    }
+  }
+
   /**
     * Finds the latest timestamp dir inside the given dir
     *
@@ -377,24 +391,36 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
    */
   private def diff(prev: Path, current: Path) : Either[Seq[Throwable], (Seq[Addition], Seq[Update], Seq[Removal])] = {
 
-    def removalsOrUpdates() : Either[Seq[Throwable], Seq[Either[Removal, Update]]] = listFiles(prev).map(_.map(removalOrUpdate).flatten)
+    def removalsOrUpdates() : Either[Seq[Throwable], Seq[Either[Removal, Update]]] = {
+      listFiles(prev).flatMap { prevFiles =>
+        prevFiles.foldLeft[Either[Seq[Throwable], Vector[Either[Removal, Update]]]](Right(Vector.empty)) {
+          case (acc, prevFile) =>
+            acc.flatMap { collected =>
+              removalOrUpdate(prevFile).map {
+                case Some(value) => collected :+ value
+                case None => collected
+              }
+            }
+        }.map(_.toSeq)
+      }
+    }
 
-    def removalOrUpdate(prevFile: Path): Option[Either[Removal, Update]] = {
+    def removalOrUpdate(prevFile: Path): Either[Seq[Throwable], Option[Either[Removal, Update]]] = {
       val currentFile = current.resolve(prevFile.getFileName)
       if(Files.exists(currentFile)) {
-        val prevChecksum = checksum(prevFile)
-        val currentChecksum = checksum(currentFile)
-        if(prevChecksum != currentChecksum) {
-          // update
-          Some(LocalIndexableRootObject(currentFile).asRight)
-        } else {
-          // no change
-          None
+        sameChecksum(checksum(prevFile), checksum(currentFile)).map { checksumsMatch =>
+          if(checksumsMatch) {
+            // no change
+            None
+          } else {
+            // update
+            Some(LocalIndexableRootObject(currentFile).asRight)
+          }
         }
       } else {
         // removal
         val prevObjectId = readObjectId(prevFile, mapper)
-        prevObjectId.map(_.asLeft)
+        Right(prevObjectId.map(_.asLeft))
       }
     }
 

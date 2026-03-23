@@ -130,6 +130,7 @@ client_query_admin() {
   docker exec "${EXISTDB_CONTAINER_NAME}" \
     java org.exist.start.Main client \
       --no-gui \
+      --no-embedded-mode \
       -u "${EXIST_ADMIN_USER}" \
       -P "${EXIST_STAGE_ADMIN_PASSWORD}" \
       -x "${query}"
@@ -140,6 +141,7 @@ client_collection_cmd() {
   docker exec "${EXISTDB_CONTAINER_NAME}" \
     java org.exist.start.Main client \
       --no-gui \
+      --no-embedded-mode \
       -u "${EXIST_ADMIN_USER}" \
       -P "${EXIST_STAGE_ADMIN_PASSWORD}" \
       "$@"
