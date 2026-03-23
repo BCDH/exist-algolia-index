@@ -4,14 +4,14 @@
 
 eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](https://github.com/eXist-db/exist) native XML database. It uses eXist's own indexing mechanisms to create, upload and incrementally sync local indexes with [Algolia's](http://www.algolia.com) cloud services.
 
-The current build and test baseline is **eXist-db 6.4.1**.
-
 <p align="center">
   <img src="https://i.imgur.com/yqIlRI0.png">
   <span style="color:gray; font-size:0.8rem">eXist Indexer for Algolia in action: autocomplete search on <a href="http://raskovnik.org">http://raskovnik.org</a></span>
 </p>
 
 ## Installation
+
+This readme details the build and manual install process.
 
 Automated local and staging deployment guidance is documented separately:
 
@@ -38,43 +38,35 @@ The plugin JAR must be built and then installed into eXist manually.
 
 1. Build the assembly:
 
-```bash
-sbt assembly
-```
+   ```bash
+   sbt assembly
+   ```
 
 2. Copy the resulting JAR into eXist's plugin/library directory.
 
-3. Add the Algolia module to `conf.xml`.
+3. Add the Algolia module to `conf.xml` inside `indexer/modules`:
 
-4. Add the dependency entry to `startup.xml`.
+   ```xml
+   <module id="algolia-index"
+       class="org.humanistika.exist.index.algolia.AlgoliaIndex"
+       application-id="YOUR-ALGOLIA-APPLICATION-ID"
+       admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"/>
+   ```
+
+4. Add the dependency entry to `startup.xml`:
+
+   ```xml
+   <dependency>
+       <groupId>org.humanistika.exist.index.algolia</groupId>
+       <artifactId>exist-algolia-index</artifactId>
+       <version>1.1.0-SNAPSHOT</version>
+       <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath>
+   </dependency>
+   ```
 
 5. Restart eXist.
 
 6. Reindex the configured collections so already-present data is pushed into Algolia.
-
-The plugin needs these two config entries:
-
-`conf.xml`, inside `indexer/modules`:
-
-```xml
-<module id="algolia-index"
-    class="org.humanistika.exist.index.algolia.AlgoliaIndex"
-    application-id="YOUR-ALGOLIA-APPLICATION-ID"
-    admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"/>
-```
-
-`etc/startup.xml`, as a dependency entry for the exact JAR filename:
-
-```xml
-<dependency>
-    <groupId>org.humanistika.exist.index.algolia</groupId>
-    <artifactId>exist-algolia-index</artifactId>
-    <version>1.1.0-SNAPSHOT</version>
-    <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath>
-</dependency>
-```
-
-After that, restart eXist and reindex the configured collections.
 
 ## Configuration
 
@@ -85,7 +77,6 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
 ```xml
 <collection xmlns="http://exist-db.org/collection-config/1.0">
     <index>
-
         <algolia>
             <namespaceMappings>
                 <namespaceMapping>
@@ -103,7 +94,6 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
                 </rootObject>
             </index>
         </algolia>
-
     </index>
 </collection>
 ```
@@ -114,9 +104,9 @@ A `rootObject` is equivalent to an object inside an Algolia Index. We create one
 
 An `attribute` (represents a JSON object attribute, not to be confused with an XML attribute) is a simple key/value pair that is extracted from the XML and placed into the Algolia object ("rootObject" as we call it). All of the text nodes or attribute values indicated by the "path" on the "attribute" element will be serialized to a string (and then converted if you set an explicit "type" attribute).
 
-The path for an "attribute" may point to either an XML element or XML attribute node. Paths must be simple, you can use namespace prefixes in the path, but you must also set the namespaceMappings element in the collection.xconf.
+The path for an "attribute" may point to either an XML element or XML attribute node. Paths must be simple, you can use namespace prefixes in the path, but you must also set the namespaceMappings element in the `collection.xconf`.
 
-The XML Schema file https://github.com/BCDH/exist-algolia-index/blob/master/src/main/resources/xsd/exist-algolia-index-config.xsd defines and documents the index configuration.
+The XML Schema file [exist-algolia-index-config.xsd](https://github.com/BCDH/exist-algolia-index/blob/master/src/main/resources/xsd/exist-algolia-index-config.xsd) defines and documents the index configuration.
 
 An `object` represents a JSON object, and this is where things become fun, we basically serialize the XML node pointed to by the "path" attribute on the "object" element to a JSON equivalent. This allows you to create highly complex and structured objects in the Algolia index from your XML.
 
@@ -128,8 +118,8 @@ You can limit data access by setting the `visibleBy` attribute in `collection.xc
 
 See the test fixture examples:
 
-- XML: https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/VSK.TEST.xml
-- `collection.xconf`: https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/collection.xconf
+- XML: [VSK.TEST.xml](https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/VSK.TEST.xml)
+- Configuration: [collection.xconf](https://github.com/BCDH/exist-algolia-index/tree/master/src/test/resources/integration/user-specified-visibleBy/collection.xconf)
 
 ## Enable logging in eXist (optional)
 
