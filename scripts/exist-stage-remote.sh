@@ -339,7 +339,7 @@ verify_static_state() {
 }
 
 run_smoke_test() {
-  local tmp_dir smoke_file smoke_conf marker_file container_smoke_doc container_smoke_conf output data_dir found_file
+  local tmp_dir smoke_file smoke_conf marker_file container_smoke_doc container_smoke_conf output data_dir found_file algolia_summary
 
   require_container_running
   tmp_dir=$(mktemp -d)
@@ -384,6 +384,8 @@ run_smoke_test() {
   fi
 
   echo "[remote] Smoke reindex wrote $(basename "${found_file}")"
+  algolia_summary=$(wait_for_algolia_smoke_upload "${SMOKE_INDEX_NAME}")
+  echo "[remote] Smoke upload reached Algolia: ${algolia_summary}"
   delete_algolia_index "${SMOKE_INDEX_NAME}"
 }
 

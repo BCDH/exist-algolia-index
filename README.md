@@ -83,7 +83,7 @@ Notes:
 - `run` will build, install, patch `conf.xml`, patch `startup.xml`, restart eXist if `EXIST_RESTART_CMD` is configured, and then verify the install.
 - if `EXIST_RESTART_CMD` is not configured, `run` stops after preparing the files and exits with a clear “restart required before verification” message.
 - `verify` performs a smoke reindex using the admin account, so `EXIST_LOCAL_ADMIN_PASSWORD` is required.
-- the smoke check creates or updates a temporary Algolia index and then attempts to delete it.
+- the smoke check verifies both the local store and the remote Algolia upload, then attempts to delete the temporary Algolia index.
 
 ### Staging Deploy
 
@@ -147,7 +147,7 @@ Notes:
 
 - the remote helper is `./scripts/exist-stage-remote.sh`; `exist-stage.sh` uploads it automatically and executes it over SSH
 - if `EXIST_STAGE_RESTART_CMD` is unset, the remote helper defaults to `docker restart ${EXISTDB_CONTAINER_NAME}`
-- the staging smoke check also creates or updates a temporary Algolia index and then attempts to delete it
+- the staging smoke check verifies both the local store and the remote Algolia upload, then attempts to delete the temporary Algolia index
 
 ### Manual install reference
 

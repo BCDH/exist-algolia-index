@@ -166,7 +166,7 @@ verify_restart_log() {
 }
 
 run_smoke_test() {
-  local tmp_dir marker_file data_dir output smoke_file smoke_conf found_file
+  local tmp_dir marker_file data_dir output smoke_file smoke_conf found_file algolia_summary
 
   require_cmd mktemp
   tmp_dir=$(mktemp -d)
@@ -200,6 +200,8 @@ run_smoke_test() {
   fi
 
   echo "Smoke reindex wrote ${found_file}"
+  algolia_summary=$(wait_for_algolia_smoke_upload "${SMOKE_INDEX_NAME}")
+  echo "Smoke upload reached Algolia: ${algolia_summary}"
   delete_algolia_index "${SMOKE_INDEX_NAME}"
 }
 

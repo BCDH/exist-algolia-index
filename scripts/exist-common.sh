@@ -275,6 +275,77 @@ delete_algolia_index() {
   echo "Warning: failed to delete Algolia smoke index ${index_name}; clean it up manually if needed." >&2
 }
 
+algolia_query_index() {
+  local index_name=$1
+  local payload=${2:-'{"query":"","hitsPerPage":10}'}
+  local encoded_index
+  encoded_index=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${index_name}")
+
+  curl -fsS \
+    -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
+    -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    --data "${payload}" \
+    "https://${ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encoded_index}/query" 2>/dev/null || \
+  curl -fsS \
+    -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
+    -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    --data "${payload}" \
+    "https://${ALGOLIA_APPLICATION_ID}.algolia.net/1/indexes/${encoded_index}/query"
+}
+
+wait_for_algolia_smoke_upload() {
+  local index_name=$1
+  local timeout_seconds=${2:-60}
+  local started_at response summary
+
+  require_algolia_credentials
+  require_cmd curl
+  require_cmd python3
+
+  started_at=$(date +%s)
+  while :; do
+    response=$(algolia_query_index "${index_name}" '{"query":"","hitsPerPage":10}' 2>/dev/null || true)
+    if [[ -n "${response}" ]]; then
+      summary=$(RESPONSE="${response}" python3 <<'PY'
+import json
+import os
+
+payload = os.environ["RESPONSE"]
+data = json.loads(payload)
+hits = data.get("hits") or []
+if not hits:
+    raise SystemExit(1)
+hit = hits[0]
+parts = [
+    f'hits={data.get("nbHits", len(hits))}',
+    f'objectID={hit.get("objectID", "")}',
+]
+for key in ("lemma", "dict", "tr"):
+    value = hit.get(key)
+    if value:
+        parts.append(f"{key}={value}")
+print(" ".join(parts))
+PY
+)
+      if [[ -n "${summary}" ]]; then
+        echo "${summary}"
+        return 0
+      fi
+    fi
+
+    if (( $(date +%s) - started_at >= timeout_seconds )); then
+      echo "Timed out waiting for Algolia smoke index ${index_name} to become searchable." >&2
+      return 1
+    fi
+
+    sleep 2
+  done
+}
+
 find_new_local_store_file() {
   local data_dir=$1
   local marker_file=$2
