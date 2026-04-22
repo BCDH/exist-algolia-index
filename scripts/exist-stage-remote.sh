@@ -78,10 +78,16 @@ container_env_value() {
 }
 
 verify_runtime_classpath() {
-  local classpath_value
+  local classpath_value runtime_plugin_path
 
   classpath_value=$(container_env_value "CLASSPATH")
   if [[ "${classpath_value}" == *"exist.uber.jar"* ]] && [[ "${classpath_value}" != *"${PLUGIN_JAR_FILENAME}"* ]]; then
+    runtime_plugin_path=$(runtime_plugin_classpath_entry || true)
+    if [[ -n "${runtime_plugin_path}" ]] && container_file_matches_local "${PLUGIN_JAR_PATH}" "${runtime_plugin_path}"; then
+      echo "[remote] Runtime CLASSPATH uses ${runtime_plugin_path}; contents match ${PLUGIN_JAR_FILENAME}"
+      return 0
+    fi
+
     cat >&2 <<EOF
 Container ${EXISTDB_CONTAINER_NAME} starts eXist from exist.uber.jar and its CLASSPATH does not include ${PLUGIN_JAR_FILENAME}.
 
@@ -248,13 +254,57 @@ copy_tmp_file_to_container() {
   docker cp "${tmp_path}" "${EXISTDB_CONTAINER_NAME}:${container_path}"
 }
 
-install_plugin() {
-  local plugin_lib_dir container_jar_path tmp_dir existing_jar
+container_mount_field_for_path() {
+  local container_path=$1
+  local field=$2
 
-  require_plugin_artifact
-  require_container_running
-  plugin_lib_dir=$(resolve_remote_plugin_lib_dir)
-  container_jar_path="${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
+  docker inspect --format "{{range .Mounts}}{{if eq .Destination \"${container_path}\"}}{{println .${field}}}{{end}}{{end}}" "${EXISTDB_CONTAINER_NAME}" 2>/dev/null |
+    head -n 1
+}
+
+container_mount_is_readonly() {
+  local container_path=$1
+  local mount_rw
+
+  mount_rw=$(container_mount_field_for_path "${container_path}" "RW")
+  [[ "${mount_rw}" == "false" ]]
+}
+
+runtime_plugin_classpath_entry() {
+  local classpath_value
+
+  classpath_value=$(container_env_value "CLASSPATH")
+  if [[ -z "${classpath_value}" ]]; then
+    return 1
+  fi
+
+  tr ':' '\n' <<<"${classpath_value}" | grep 'exist-algolia-index-assembly-.*\.jar$' | head -n 1
+}
+
+container_file_matches_local() {
+  local local_path=$1
+  local container_path=$2
+  local tmp_dir tmp_file
+
+  tmp_dir=$(mktemp -d)
+  tmp_file="${tmp_dir}/container-file"
+  if ! docker cp "${EXISTDB_CONTAINER_NAME}:${container_path}" "${tmp_file}" >/dev/null 2>&1; then
+    rm -rf "${tmp_dir}"
+    return 1
+  fi
+
+  if cmp -s "${local_path}" "${tmp_file}"; then
+    rm -rf "${tmp_dir}"
+    return 0
+  fi
+
+  rm -rf "${tmp_dir}"
+  return 1
+}
+
+install_plugin_artifact_to_path() {
+  local container_jar_path=$1
+  local tmp_dir existing_jar
 
   if container_path_exists "${container_jar_path}"; then
     tmp_dir=$(mktemp -d)
@@ -271,6 +321,21 @@ install_plugin() {
   docker cp "${PLUGIN_JAR_PATH}" "${EXISTDB_CONTAINER_NAME}:${container_jar_path}"
 }
 
+install_plugin() {
+  local plugin_lib_dir container_jar_path runtime_plugin_path
+
+  require_plugin_artifact
+  require_container_running
+  plugin_lib_dir=$(resolve_remote_plugin_lib_dir)
+  container_jar_path="${plugin_lib_dir}/${PLUGIN_JAR_FILENAME}"
+  install_plugin_artifact_to_path "${container_jar_path}"
+
+  runtime_plugin_path=$(runtime_plugin_classpath_entry || true)
+  if [[ -n "${runtime_plugin_path}" ]] && [[ "${runtime_plugin_path}" != "${container_jar_path}" ]]; then
+    install_plugin_artifact_to_path "${runtime_plugin_path}"
+  fi
+}
+
 configure_plugin() {
   local conf_xml tmp_dir tmp_file
 
@@ -281,6 +346,20 @@ configure_plugin() {
   tmp_file="${tmp_dir}/conf.xml"
 
   copy_container_file_to_tmp "${conf_xml}" "${tmp_file}"
+  if container_mount_is_readonly "${conf_xml}"; then
+    if python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
+      verify-conf \
+      "${tmp_file}" \
+      --application-id "${ALGOLIA_APPLICATION_ID}" \
+      --admin-api-key "${ALGOLIA_ADMIN_API_KEY}"; then
+      echo "[remote] ${conf_xml} is mounted read-only and already configured; skipping update"
+      return 0
+    fi
+
+    echo "conf.xml is mounted read-only at ${conf_xml} and is not configured for the current Algolia credentials." >&2
+    return 1
+  fi
+
   python3 "${ROOT_DIR}/scripts/manage-exist-config.py" \
     update-conf \
     "${tmp_file}" \

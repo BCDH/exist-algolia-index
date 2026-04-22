@@ -6,24 +6,12 @@ eXist Indexer for Algolia is a configurable index plug-in for the [eXist-db](htt
 
 <p align="center">
   <img src="https://i.imgur.com/yqIlRI0.png">
-  <span style="color:gray; font-size:0.8rem">eXist Indexer for Algolia in action: autocomplete search on <a href="http://raskovnik.org">http://raskovnik.org</a></span>
+  <span style="color:gray; font-size:0.8rem">Example deployment: autocomplete search on <a href="http://raskovnik.org">http://raskovnik.org</a></span>
 </p>
 
 ## Installation
 
-This readme details the build and manual install process.
-
-Automated local and staging deployment guidance is documented separately:
-
-- [docs/existdb-algolia-index-operator-runbook.md](docs/existdb-algolia-index-operator-runbook.md)
-- [docs/existdb-algolia-index-hardening-plan.md](docs/existdb-algolia-index-hardening-plan.md)
-
-Those docs assume the current `raskovnik-backend` deployment model:
-
-- dictionaries are packaged and deployed independently
-- installed dictionary data lives under `/db/apps/raskovnik-data/data/<DICT_ID>`
-- operators may backfill either the full dictionary root or one dictionary subcollection after a targeted backend deploy
-- release-set deploys may selectively replace only the dictionaries that changed
+This README covers the build, manual installation, and general configuration of the plugin.
 
 ### Build
 
@@ -36,7 +24,7 @@ sbt assembly
 The assembly is written to:
 
 ```bash
-target/scala-2.13/exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar
+target/scala-2.13/exist-algolia-index-assembly-1.1.2-SNAPSHOT.jar
 ```
 
 ### Manual install
@@ -66,19 +54,15 @@ The plugin JAR must be built and then installed into eXist manually.
    <dependency>
        <groupId>org.humanistika.exist.index.algolia</groupId>
        <artifactId>exist-algolia-index</artifactId>
-       <version>1.1.0-SNAPSHOT</version>
-       <relativePath>exist-algolia-index-assembly-1.1.0-SNAPSHOT.jar</relativePath>
+       <version>1.1.2-SNAPSHOT</version>
+       <relativePath>exist-algolia-index-assembly-1.1.2-SNAPSHOT.jar</relativePath>
    </dependency>
    ```
 
 5. Restart eXist.
 
 6. Reindex the configured collections so already-present data is pushed into Algolia.
-
-For current Raskovnik installs, that usually means one of:
-
-- full backfill: `/db/apps/raskovnik-data/data`
-- targeted backfill after a one-dictionary backend deploy: `/db/apps/raskovnik-data/data/<DICT_ID>`
+   The correct reindex target depends on your own collection structure. Reindex the collection or subcollection whose `collection.xconf` contains the Algolia index configuration.
 
 ## Configuration
 
@@ -123,6 +107,16 @@ The XML Schema file [exist-algolia-index-config.xsd](https://github.com/BCDH/exi
 An `object` represents a JSON object, and this is where things become fun, we basically serialize the XML node pointed to by the "path" attribute on the "object" element to a JSON equivalent. This allows you to create highly complex and structured objects in the Algolia index from your XML.
 
 The `name` attribute that is available on the "attribute" and "object" elements allows you to set the name of the field in the JSON object of the Algolia index, this means that name names of your data fields can be different in Algolia to eXist if you wish.
+
+### Reindexing Existing Data
+
+Installing or updating the plugin does not by itself upload already-present XML documents to Algolia. After installation, reindex each configured collection in eXist so the configured `rootObject`s are serialized and pushed to Algolia.
+
+In general:
+
+- reindex the full configured collection for a first-time backfill
+- reindex a narrower subcollection if your deployment replaced only part of the XML corpus and that subcollection has the relevant Algolia collection config
+- avoid reindexing broad parent collections unless they are the intended scope of the Algolia configuration
 
 ### Limiting Object Access
 
@@ -169,4 +163,4 @@ When you back up eXist, you should also back up the `algolia-index` directory in
 
 Hats off to [Adam Retter](https://github.com/adamretter) for sharing his superb programming skills with us in this project.
 
-This tool has been developed in the context of an ongoing [BCDH](http://www.humanistika.org) project: Raskovnik - A Serbian Dictionary Platform (together with the Institute of Serbian Language). The project has received funding from the Ministry of Culture and Information of the Republic of Serbia.
+This tool was developed in the context of ongoing work at [BCDH](http://www.humanistika.org), including Raskovnik, a Serbian dictionary platform built together with the Institute of Serbian Language.

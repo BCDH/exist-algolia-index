@@ -202,6 +202,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private var userSpecifiedDocumentIds: Map[IndexName, UserSpecifiedOption] = Map.empty
   private var userSpecifiedVisibleByIds: Map[IndexName, UserSpecifiedOption] = Map.empty
   private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
+  private var missingUserSpecifiedNodeIdFallbacks: Map[(IndexName, NodePath), Int] = Map.empty
 
   case class ContextElement(name: QName, attributes: Map[QName, String])
   private val context: Deque[ContextElement] = new ArrayDeque[ContextElement]()
@@ -220,6 +221,8 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   }
 
   override def startIndexDocument(transaction: Txn) {
+    this.missingUserSpecifiedNodeIdFallbacks = Map.empty
+
     // find any User Specified Document IDs that we need to complete
     this.userSpecifiedDocumentIds = indexConfigs
       .map{ case (indexName, index) => Tuple2(indexName , Option(index.getDocumentId).map(path => UserSpecifiedOption(nodePath(ns, path), None))) }
@@ -321,6 +324,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     // clear any User Specified Document IDs
     this.userSpecifiedDocumentIds = Map.empty
     this.userSpecifiedVisibleByIds = Map.empty
+    this.missingUserSpecifiedNodeIdFallbacks = Map.empty
 
     this.context.clear()
 
@@ -469,9 +473,12 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     // finished... so clear the map of things we are processing
     this.processing = Map.empty
 
+    logMissingUserSpecifiedNodeIdFallbacks()
+
     this.userSpecifiedDocumentIds = Map.empty
     this.userSpecifiedVisibleByIds = Map.empty
     this.userSpecifiedNodeIds = Map.empty
+    this.missingUserSpecifiedNodeIdFallbacks = Map.empty
   }
 
   private def getUserSpecifiedDocumentIdOrWarn(indexName: IndexName) : Option[UserSpecifiedDocumentId] = {
@@ -496,7 +503,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
           case value : Some[UserSpecifiedVisibleBy] =>
             value
           case None =>
-            logger.warn(s"Unable to find user specified document id for index=${indexName} at path=${userSpecifiedVisibleBy.path}, will use default!")
+            logger.warn(s"Unable to find user specified visibleBy value for index=${indexName} at path=${userSpecifiedVisibleBy.path}, will use default!")
             None
         }
       case None =>
@@ -516,11 +523,28 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
           case value : Some[UserSpecifiedNodeId] =>
             value
           case None =>
-            logger.warn(s"Unable to find user specified node id for index=${indexName} at path=${key._2}, will use default!")
+            noteMissingUserSpecifiedNodeIdFallback(indexName, key._2)
             None
         }
       case None =>
         None
+    }
+  }
+
+  private def noteMissingUserSpecifiedNodeIdFallback(indexName: IndexName, configuredNodeIdPath: NodePath): Unit = {
+    val key = (indexName, configuredNodeIdPath)
+    val updatedCount = missingUserSpecifiedNodeIdFallbacks.getOrElse(key, 0) + 1
+    this.missingUserSpecifiedNodeIdFallbacks = missingUserSpecifiedNodeIdFallbacks + (key -> updatedCount)
+  }
+
+  private def logMissingUserSpecifiedNodeIdFallbacks(): Unit = {
+    val collectionPath = indexWorker.getDocument.getCollection.getURI.getCollectionPath
+    val documentId = indexWorker.getDocument.getDocId
+
+    missingUserSpecifiedNodeIdFallbacks.foreach { case ((indexName, configuredNodeIdPath), rootObjectCount) =>
+      logger.warn(
+        s"Unable to find user specified node id for index=${indexName} collectionPath=${collectionPath} documentId=${documentId} configuredNodeIdPath=${configuredNodeIdPath} affectedRootObjectCount=${rootObjectCount}; using fallback object IDs."
+      )
     }
   }
 

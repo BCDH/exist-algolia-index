@@ -125,7 +125,9 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
 
         maybeCollectionAlgoliaConf match {
           case None =>
-            LOG.error("Cannot remove Algolia indexes for collection {}, no collection config found!", collection.getURI)
+            if (LOG.isDebugEnabled) {
+              LOG.debug("Skipping Algolia collection removal for {} because no Algolia collection config was found", collection.getURI)
+            }
 
           case Some(collectionAlgoliaConf) =>
             val indexNames = collectionAlgoliaConf.getIndex.asScala.map(_.getName)

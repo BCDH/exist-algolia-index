@@ -42,6 +42,10 @@ import org.apache.commons.codec.binary.Base32
 
 object IndexLocalStoreManagerActor {
   val ACTOR_NAME = "IndexLocalStoreManager"
+
+  private[algolia] def collectionPathMatchesTree(collectionPath: CollectionPath, candidatePath: CollectionPath): Boolean = {
+    candidatePath == collectionPath || candidatePath.startsWith(s"$collectionPath/")
+  }
 }
 
 /**
@@ -227,7 +231,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       val objectMapper = new ObjectMapper()
       val tree = objectMapper.readTree(rootObjectPath.toFile)
       val rootObjectCollectionPath = Option(tree.get(COLLECTION_PATH_FIELD_NAME)).flatMap(node => Option(node.asText))
-      rootObjectCollectionPath.exists(_.startsWith(collectionPath))
+      rootObjectCollectionPath.exists(IndexLocalStoreManagerActor.collectionPathMatchesTree(collectionPath, _))
     }
 
     Using(Files.list(timestampDir)) { timestampDirStream =>
@@ -277,17 +281,23 @@ object IndexLocalStoreDocumentActor {
     * @param lt Optionally a timestamp that the latest timestamp dir must be less than
     */
   def getLatestTimestampDir(dir: Path, lt: Option[Timestamp] = None): Option[Path] = {
-    def timestampFromPath(p: Path): Timestamp = p.getFileName.toString.toLong
+    def timestampFromPath(p: Path): Option[Timestamp] = Try(p.getFileName.toString.toLong).toOption
 
-    Using(Files.list(dir)) { stream =>
-      stream
-        .filter(Files.isDirectory(_))
-        .filter(dir => lt.map(timestamp => timestampFromPath(dir) < timestamp).getOrElse(true))
-        .collect(Collectors.toList())
-        .asScala
-    }.get
-      .sortWith { case (p1, p2) => timestampFromPath(p1) > timestampFromPath(p2) }
-      .headOption
+    if (!Files.isDirectory(dir)) {
+      None
+    } else {
+      Using(Files.list(dir)) { stream =>
+        stream
+          .filter(Files.isDirectory(_))
+          .collect(Collectors.toList())
+          .asScala
+          .flatMap(path => timestampFromPath(path).map(_ -> path))
+          .filter { case (timestamp, _) => lt.forall(timestamp < _) }
+      }.get
+        .sortBy { case (timestamp, _) => -timestamp }
+        .headOption
+        .map(_._2)
+    }
   }
 }
 
@@ -357,7 +367,7 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
       val maybeDocTimestampDir = maybeTimestamp.map(getTimestampDir(documentDirName, _)).orElse(getLatestTimestampDir(getDocDir(documentDirName), None))
 
       maybeDocTimestampDir match {
-        case Some(docTimestampDir) =>
+        case Some(docTimestampDir) if Files.isDirectory(docTimestampDir) =>
           // we now have the latest timestamp dir for the documentId
           if(FileUtils.deleteQuietly(docTimestampDir)) {
             if (logger.isTraceEnabled) {
@@ -368,8 +378,13 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
             throw new IllegalStateException(s"Unable to remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) at timestamp: $maybeTimestamp, path: $docTimestampDir")
           }
 
+        case Some(docTimestampDir) =>
+          logger.debug(s"Skipping remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) because timestamp dir is already absent: $docTimestampDir")
+          context.parent ! RemovedDocument(documentId)
+
         case None =>
-          throw new IllegalStateException(s"Unable to find doc timestamp dir to remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) at timestamp: $maybeTimestamp")
+          logger.debug(s"Skipping remove for document (docId=${documentId}, userSpecificDocId=${userSpecifiedDocumentId}) because no timestamp dir exists at timestamp: $maybeTimestamp")
+          context.parent ! RemovedDocument(documentId)
       }
 
 
@@ -452,12 +467,16 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
   }
 
   private def listFiles(dir: Path) : Either[Seq[Throwable], Seq[Path]] = {
-    Using(Files.list(dir)) { stream =>
-      stream
-        .filter(Files.isRegularFile(_))
-        .collect(Collectors.toList())
-        .asScala.toSeq
-    }.toEither.leftMap(Seq(_))
+    if (!Files.isDirectory(dir)) {
+      Right(Seq.empty)
+    } else {
+      Using(Files.list(dir)) { stream =>
+        stream
+          .filter(Files.isRegularFile(_))
+          .collect(Collectors.toList())
+          .asScala.toSeq
+      }.toEither.leftMap(Seq(_))
+    }
   }
 
   private def findPreviousDir(timestampDir: Path): Option[Path] = {

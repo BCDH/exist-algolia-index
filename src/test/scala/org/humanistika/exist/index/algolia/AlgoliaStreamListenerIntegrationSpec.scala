@@ -331,6 +331,49 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(FinishDocument(indexName, Some(userSpecifiedDocId), collectionId, docId))
     }
 
+    "keep fallback node ids when a configured user specified nodeId path is missing" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-missing-user-specified-nodeId"
+      val testCollectionPath = XmldbURI.create("/db/test-integration-missing-user-specified-nodeId")
+
+      implicit val brokerPool : BrokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, testCollectionPath, getTestResource("integration/missing-user-specified-nodeId/collection.xconf"))
+      collectionConfigPath must beRight
+
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, testCollectionPath, getTestResource("integration/basic/VSK.TEST.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = testCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.4.1"))),
+        Left(("lemma", Seq("1.5.2.2.4.3.3"))),
+        Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.6"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.6.1"))),
+        Left(("lemma", Seq("1.5.2.2.6.3.3"))),
+        Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.8"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.8.1"))),
+        Left(("lemma", Seq("1.5.2.2.8.3.3"))),
+        Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.10"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.10.1"))),
+        Left(("lemma", Seq("1.5.2.2.10.3.3"))),
+        Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.12"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.12.1"))),
+        Left(("lemma", Seq("1.5.2.2.12.3.3"))),
+        Left(("tr", Seq("1.5.2.2.12.9.3.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
+    }
+
     "produce the correct actor messages for a object based index config with just text nodes in data" in new AkkaTestkitSpecs2Support {
 
       val indexName = "raskovnik-test-integration-object-based-text-nodes"

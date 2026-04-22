@@ -1,6 +1,8 @@
-# eXist Algolia Index Operator Runbook
+# eXist Algolia Index Operator Runbook for Raskovnik
 
 This runbook covers the automated operator flows for installing and backfilling the `exist-algolia-index` plugin for Raskovnik.
+
+It is not a general plugin usage guide. It assumes the current Raskovnik collection layout, index naming, deployment process, and staging setup.
 
 It covers:
 
@@ -67,6 +69,10 @@ If you need to backfill separately later:
 
 ## Staging Operator Flow
 
+Use this staging flow only to validate a new `exist-algolia-index` build before baking it into the Raskovnik eXist-db Docker image.
+
+It is a testing workflow, not the preferred steady-state deployment model. The correct long-term setup is for the eXist-db image itself to include the plugin JAR and any required runtime wiring so the container starts with the plugin already installed.
+
 This staging flow assumes:
 
 - the Dockerized staging eXist-db service is already provisioned
@@ -83,6 +89,8 @@ For the official `existdb/existdb` image:
 - the plugin JAR must already be present in the container and included on `CLASSPATH` when the container starts
 
 If the container does not satisfy that condition, the plugin install script should fail early rather than silently "succeed" without actually loading the plugin.
+
+For Raskovnik, the preferred fix is not to keep patching a running container forever. The preferred fix is to publish an image that already contains the desired plugin version and starts with the correct `CLASSPATH`.
 
 ### Required Staging Settings
 

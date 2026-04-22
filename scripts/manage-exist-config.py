@@ -152,7 +152,7 @@ def verify_startup(path: Path, artifact_id: str, version: str, relative_path: st
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     conf_update = subparsers.add_parser("update-conf")
     conf_update.add_argument("path", type=Path)
@@ -182,6 +182,9 @@ def main() -> int:
     startup_verify.add_argument("relative_path")
 
     args = parser.parse_args()
+    if args.command is None:
+        parser.print_usage(sys.stderr)
+        raise SystemExit(2)
 
     if args.command == "update-conf":
         update_conf(args.path, args.application_id, args.admin_api_key, args.begin, args.end)

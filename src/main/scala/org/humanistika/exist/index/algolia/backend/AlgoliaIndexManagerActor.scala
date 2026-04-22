@@ -20,7 +20,7 @@ package org.humanistika.exist.index.algolia.backend
 import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
 import com.algolia.search.{APIClient, ApacheAPIClientBuilder, Index}
-import org.humanistika.exist.index.algolia.{DocumentId, IndexName, IndexableRootObject, LocalIndexableRootObject, UserSpecifiedDocumentId, readObjectId}
+import org.humanistika.exist.index.algolia.{CollectionPath, DocumentId, IndexName, IndexableRootObject, LocalIndexableRootObject, UserSpecifiedDocumentId, readObjectId}
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import AlgoliaIndexActor._
@@ -38,6 +38,13 @@ import scala.util.{Failure, Success, Try}
 
 object AlgoliaIndexManagerActor {
   val ACTOR_NAME = "AlgoliaIndexManager"
+
+  private[algolia] def exactCollectionPathFilter(collectionPath: CollectionPath): String = {
+    val escapedCollectionPath = collectionPath
+      .replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+    s"""$COLLECTION_PATH_FIELD_NAME:${'"'}$escapedCollectionPath${'"'}"""
+  }
 }
 
 class AlgoliaIndexManagerActor extends Actor {
@@ -97,10 +104,14 @@ class AlgoliaIndexManagerActor extends Actor {
 
       val indexSettings = Option(index.getSettings).getOrElse(new IndexSettings)
       val searchableAttributes = Option(indexSettings.getSearchableAttributes).map(_.asScala.toSeq).getOrElse(Seq.empty)
+      val attributesForFaceting = Option(indexSettings.getAttributesForFaceting).map(_.asScala.toSeq).getOrElse(Seq.empty)
       val newSearchableAttributes = addSearchableAttributes(searchableAttributes,
         COLLECTION_PATH_FIELD_NAME,
         DOCUMENT_ID_FIELD_NAME)
-      index.setSettings(indexSettings.setSearchableAttributes(newSearchableAttributes.asJava))
+      val newAttributesForFaceting = addFacetAttribute(attributesForFaceting, COLLECTION_PATH_FIELD_NAME)
+      indexSettings.setSearchableAttributes(newSearchableAttributes.asJava)
+      indexSettings.setAttributesForFaceting(newAttributesForFaceting.asJava)
+      index.setSettings(indexSettings)
 
       index
     }
@@ -128,6 +139,14 @@ class AlgoliaIndexManagerActor extends Actor {
         .map(_ => searchableAttributes).getOrElse(searchableAttributes :+ searchableAttribute)
     }
 
+    def addFacetAttribute(attributesForFaceting: Seq[String], attribute: String): Seq[String] = {
+      val filterOnlyAttribute = s"filterOnly($attribute)"
+      attributesForFaceting
+        .find(existing => existing.equals(attribute) || existing.equals(filterOnlyAttribute) || existing.equals(s"searchable($attribute)"))
+        .map(_ => attributesForFaceting)
+        .getOrElse(attributesForFaceting :+ filterOnlyAttribute)
+    }
+
     val perIndexActor = context.actorOf(Props(classOf[AlgoliaIndexActor], indexName, initIndex()), indexName)
     perIndexActors = perIndexActors + (indexName -> perIndexActor)
     perIndexActor
@@ -147,6 +166,9 @@ object AlgoliaIndexActor {
   case class AlgoliaDeleteCollectionResponse(collectionPath: String, batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
   case class AlgoliaDeleteIndexResponse(batchLogMsgGroupId: BatchLogMsgGroupId, error: Option[Throwable])
 
+  private[algolia] def isEmptyBatch(changes: Changes): Boolean =
+    changes.additions.isEmpty && changes.updates.isEmpty && changes.deletions.isEmpty
+
   private lazy val mapper = new ObjectMapper
 }
 
@@ -163,33 +185,40 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
         logChanges(changes)
       }
 
+      val additionsCount = additions.size
+      val updatesCount = updates.size
+      val deletionsCount = removals.size
       val batchOperations =
         additions.map(new BatchAddObjectOperation[LocalIndexableRootObject](_)) ++
           updates.map(new BatchUpdateObjectOperation[LocalIndexableRootObject](_)) ++
           removals.map(new BatchDeleteObjectOperation(_))
 
-      val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
+      if(AlgoliaIndexActor.isEmptyBatch(changes)) {
+        logger.debug(s"Skipping Algolia batch for documentId=${changes.documentId} in index: $indexName because there are no additions, updates, or deletions")
+      } else {
+        val batchLogMsgGroupId: BatchLogMsgGroupId = System.nanoTime()
 
-      logger.info(s"Sending changes (msgId=$batchLogMsgGroupId) (" +
-          s"additions=${batchOperations.count(_.isInstanceOf[BatchAddObjectOperation[_]])} " +
-          s"updates=${batchOperations.count(_.isInstanceOf[BatchUpdateObjectOperation[_]])} " +
-          s"deletions=${batchOperations.count(_.isInstanceOf[BatchDeleteObjectOperation])})" +
-          s" to Algolia for documentId=${changes.documentId} in index: $indexName")
+        logger.info(s"Sending changes (msgId=$batchLogMsgGroupId) (" +
+            s"additions=$additionsCount " +
+            s"updates=$updatesCount " +
+            s"deletions=$deletionsCount)" +
+            s" to Algolia for documentId=${changes.documentId} in index: $indexName")
 
-      val batchUpload: Future[AlgoliaBatchChangesResponse] = Future {
-        // actually send the data to Algolia!
-        Try(algoliaIndex.batch(batchOperations.asJava).waitForCompletion()) match {
-          case Success(_) =>
-            AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, None)
-          case Failure(t) =>
-            AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
+        val batchUpload: Future[AlgoliaBatchChangesResponse] = Future {
+          // actually send the data to Algolia!
+          Try(algoliaIndex.batch(batchOperations.asJava).waitForCompletion()) match {
+            case Success(_) =>
+              AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, None)
+            case Failure(t) =>
+              AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
+          }
+        }.recover { case t: Throwable =>
+          AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
         }
-      }.recover { case t: Throwable =>
-        AlgoliaBatchChangesResponse(changes.documentId, batchLogMsgGroupId, Some(t))
-      }
 
-      // redirect the response of the future back to ourselves
-      pipe(batchUpload).to(self)
+        // redirect the response of the future back to ourselves
+        pipe(batchUpload).to(self)
+      }
 
     case AlgoliaBatchChangesResponse(documentId, batchLogMsgGroupId, Some(t)) =>
       logger.error(s"Unable to send changes (msgId=$batchLogMsgGroupId) for documentId=${documentId} in index: $indexName to Algolia", t)
@@ -239,8 +268,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndex: Index[IndexableRootO
       val deleteCollectionQuery: Future[AlgoliaDeleteCollectionResponse] = Future {
         try {
           val query = new Query()
-          query.setRestrictSearchableAttributes(List(COLLECTION_PATH_FIELD_NAME).asJava)
-          query.setQuery(collectionPath)
+          query.setFilters(AlgoliaIndexManagerActor.exactCollectionPathFilter(collectionPath))
           algoliaIndex.deleteByQuery(query)
           AlgoliaDeleteCollectionResponse(collectionPath, batchLogMsgGroupId, None)
         } catch {
