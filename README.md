@@ -16,7 +16,14 @@ This readme details the build and manual install process.
 Automated local and staging deployment guidance is documented separately:
 
 - [docs/existdb-algolia-index-operator-runbook.md](docs/existdb-algolia-index-operator-runbook.md)
-- [docs/staging-existdb-algolia-index-runbook.md](docs/staging-existdb-algolia-index-runbook.md)
+- [docs/existdb-algolia-index-hardening-plan.md](docs/existdb-algolia-index-hardening-plan.md)
+
+Those docs assume the current `raskovnik-backend` deployment model:
+
+- dictionaries are packaged and deployed independently
+- installed dictionary data lives under `/db/apps/raskovnik-data/data/<DICT_ID>`
+- operators may backfill either the full dictionary root or one dictionary subcollection after a targeted backend deploy
+- release-set deploys may selectively replace only the dictionaries that changed
 
 ### Build
 
@@ -67,6 +74,11 @@ The plugin JAR must be built and then installed into eXist manually.
 5. Restart eXist.
 
 6. Reindex the configured collections so already-present data is pushed into Algolia.
+
+For current Raskovnik installs, that usually means one of:
+
+- full backfill: `/db/apps/raskovnik-data/data`
+- targeted backfill after a one-dictionary backend deploy: `/db/apps/raskovnik-data/data/<DICT_ID>`
 
 ## Configuration
 
