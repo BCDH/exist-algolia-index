@@ -34,13 +34,14 @@ import grizzled.slf4j.Logger
 import org.exist.indexing.StreamListener.ReindexMode
 import org.exist.numbering.DLN
 import org.humanistika.exist.index.algolia.NodePathWithPredicates.{AtomicEqualsComparison, AtomicNotEqualsComparison, ComponentType, SequenceEqualsComparison}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, FinishDocument, RemoveForDocument, StartDocument}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{Add, ConfigureIndex, FinishDocument, RemoveForDocument, StartDocument}
 import org.w3c.dom._
 
 
 import cats.syntax.either._
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 
 object AlgoliaStreamListener {
@@ -212,7 +213,15 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
     getNamespaceMappings(config).foreach { case (k, v) => ns.put(k, v) }
     this.rootObjectConfigs = config.getIndex.asScala.toSeq.flatMap(index => index.getRootObject.asScala.toSeq.map(rootObject => (index.getName, rootObject)))
     this.indexConfigs = config.getIndex.asScala.map(index => index.getName -> index).toMap
+    config.getIndex.asScala.foreach { index =>
+      batchSizeOverride(index).foreach(batchSize => incrementalIndexingActor ! ConfigureIndex(index.getName, Some(batchSize)))
+    }
   }
+
+  private def batchSizeOverride(index: org.exist_db.collection_config._1.Index): Option[Int] =
+    Try(index.getClass.getMethod("getBatchSize").invoke(index)).toOption
+      .flatMap(value => Option(value).map(_.asInstanceOf[java.math.BigInteger].intValue()))
+      .filter(_ > 0)
 
   override def getWorker: AlgoliaIndexWorker = indexWorker
 

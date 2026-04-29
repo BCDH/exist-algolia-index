@@ -35,7 +35,22 @@ object AlgoliaIndex {
   private val LOG: Logger = LogManager.getLogger(classOf[AlgoliaIndex])
   val ID: String = AlgoliaIndex.getClass.getName
   val DEFAULT_SYSTEM_NAME = "AlgoliaIndex"
-  case class Authentication(applicationId: String, adminApiKey: String)
+  val DEFAULT_BATCH_SIZE = 1000
+  case class IndexingSettings(defaultBatchSize: Int = DEFAULT_BATCH_SIZE, perIndexBatchSize: Map[IndexName, Int] = Map.empty) {
+    def batchSizeFor(indexName: IndexName): Int = perIndexBatchSize.getOrElse(indexName, defaultBatchSize)
+  }
+  case class Authentication(applicationId: String, adminApiKey: String, indexingSettings: IndexingSettings = IndexingSettings())
+
+  private def positiveIntAttribute(config: Element, names: String*): Option[Int] =
+    names
+      .map(name => if (config.hasAttribute(name)) Option(config.getAttribute(name)).map(_.trim).filter(_.nonEmpty) else None)
+      .collectFirst { case Some(value) => value }
+      .flatMap { value =>
+        scala.util.Try(value.toInt).toOption.filter(_ > 0).orElse {
+          LOG.warn(s"Ignoring invalid Algolia batch size value: $value")
+          None
+        }
+      }
 }
 
 /**
@@ -65,7 +80,11 @@ class AlgoliaIndex(_system: Option[ActorSystem] = None, _incrementalIndexingMana
       LOG.error("You must specify an Admin API Key for use with Algolia")
     }
 
-    this.apiAuthentication = applicationId.flatMap(id => adminApiKey.map(key => Authentication(id, key)))
+    val indexingSettings = IndexingSettings(
+      defaultBatchSize = positiveIntAttribute(config, "batch-size", "batchSize").getOrElse(DEFAULT_BATCH_SIZE)
+    )
+
+    this.apiAuthentication = applicationId.flatMap(id => adminApiKey.map(key => Authentication(id, key, indexingSettings)))
 
     super.configure(pool, dataDir, config)
   }

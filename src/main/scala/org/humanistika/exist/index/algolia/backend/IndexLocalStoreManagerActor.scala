@@ -97,6 +97,9 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
       val indexActor = getOrCreatePerIndexActor(indexName)
       indexActor ! removeForCollection
 
+    case removedCollection: RemovedCollection =>
+      context.parent ! removedCollection
+
     case DropIndexes =>
       for((indexName, indexActor) <- perIndexLocalStoreActors) {
         context.stop(indexActor)
@@ -204,6 +207,8 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
           for(documentDir <- latestTimestampDirs.map(_.getParent) if isEmpty(documentDir)) {
             FileUtils.deleteQuietly(documentDir)
           }
+
+          context.parent ! RemovedCollection(indexName, collectionPath)
 
         case Success(stoppedPerDocumentActors) if stoppedPerDocumentActors.exists(!_._2) =>
           // not all perDocumentActors were gracefully stopped

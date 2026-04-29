@@ -45,7 +45,8 @@ The plugin JAR must be built and then installed into eXist manually.
    <module id="algolia-index"
        class="org.humanistika.exist.index.algolia.AlgoliaIndex"
        application-id="YOUR-ALGOLIA-APPLICATION-ID"
-       admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"/>
+       admin-api-key="YOUR-ALGOLIA-ADMIN-API-KEY"
+       batch-size="1000"/>
    ```
 
 4. Add the dependency entry to `startup.xml`:
@@ -70,6 +71,8 @@ For a single collection in eXist, you can put data into one or more indexes in A
 
 For incremental indexing to work, you need to have two sets of unique ids, one for each document in the collection (documentId) and one for each rootObject (nodeId).
 
+Algolia writes are sent in batches. The global `batch-size` module attribute defaults to `1000` operations per request. A collection-level `<index>` can override it with `batchSize` if a specific Algolia index needs smaller or larger chunks.
+
 ```xml
 <collection xmlns="http://exist-db.org/collection-config/1.0">
     <index>
@@ -80,7 +83,7 @@ For incremental indexing to work, you need to have two sets of unique ids, one f
                     <namespace>http://www.w3.org/XML/1998/namespace</namespace>
                 </namespaceMapping>
             </namespaceMappings>
-            <index name="my-algolia-index-1" documentId="/path/to/unique-id/@xml:id" visibleBy="/path/to/unique-id">
+            <index name="my-algolia-index-1" documentId="/path/to/unique-id/@xml:id" visibleBy="/path/to/unique-id" batchSize="1000">
                 <rootObject path="/path/to/element" nodeId="@xml:id">
                     <attribute name="f1" path="/further/patha"/>
                     <attribute name="f2" path="/further/pathb" type="integer"/>

@@ -601,6 +601,8 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
 
     expect(element.getAttribute("application-id")).andReturn("some-application-id")
     expect(element.getAttribute("admin-api-key")).andReturn("some-admin-api-key")
+    expect(element.hasAttribute("batch-size")).andReturn(false)
+    expect(element.hasAttribute("batchSize")).andReturn(false)
     expect(element.hasAttribute("id")).andReturn(true)
     expect(element.getAttribute("id")).andReturn("algolia-index")
 

@@ -1,86 +1,223 @@
-# eXist Algolia Index Hardening Plan
+# eXist Algolia Index Remaining Hardening Plan
 
 ## Summary
 
-This plan addresses the failure modes observed during a staging deployment of `exist-algolia-index`:
+The original local-store and collection-path hardening work has mostly been implemented. The remaining risks are now centered on Algolia operation safety during large dictionary replacement, especially for the Raskovnik production model where each dictionary lives under:
 
-- missing local index-store directories causing `NoSuchFileException`
-- noisy and misleading collection-removal error logging
-- brittle collection-wide Algolia deletes
-- fallback node-id behavior that is necessary but not sufficiently observable
-- missing tests for the above behaviors
+```text
+/db/apps/raskovnik-data/data/<DICT_ID>
+```
 
-The goal is to preserve the current incremental indexing design while making it robust under package replacement, reindexing, and partial prior-state loss.
+The immediate production failure mode was observed while replacing `VSK.SR`: collection deletion was submitted, but the subsequent add of 46,967 records failed with an Algolia record-quota error. The dashboard still showed the old `VSK.SR` records afterwards. That strongly suggests the plugin needs stronger sequencing, smaller batches, and better propagation of Algolia failures.
 
-This should explicitly hold for the current Raskovnik deployment model, where:
+## Remaining Work
 
-- dictionaries live under `/db/apps/raskovnik-data/data/<DICT_ID>`
-- operators may replace one dictionary without touching sibling dictionaries
-- release-set deploys may selectively replace only the changed dictionaries
+### 1. Chunk Algolia batch writes
 
-## Key Changes
+Current behavior sends all additions, updates, and deletions for a document/change set in one `Index.batch(...)` call.
 
-### 1. Harden local store handling
+Required changes:
 
-- Make `IndexLocalStoreDocumentActor.getLatestTimestampDir` return `None` when the target directory does not exist or is not a directory.
-- Make `findPreviousDir` treat missing prior state as normal.
-- Make `RemoveDocument` idempotent:
-  - missing document directory or timestamp directory should be treated as already removed
-  - still emit `RemovedDocument`
-  - log at `debug` or `trace`, not `error`
-- Make `FindChanges` tolerant of absent prior state:
-  - no previous state means current files are all additions
-  - missing current state should not throw
+- Add a global configurable Algolia batch size.
+- Default the global batch size to `1000` operations per request.
+- Add an optional per-index batch-size override for indexes that need smaller or larger chunks.
+- Split additions, updates, and objectID deletions into bounded batch requests.
+- Wait for each Algolia task to complete before treating that chunk as successful.
+- Log per-chunk progress with enough context to diagnose failures:
+  - index name
+  - document id
+  - chunk number and total chunks
+  - additions, updates, deletions in the chunk
+  - Algolia task id if available
+- Preserve the existing no-op behavior for empty change sets.
 
-### 2. Tighten collection removal behavior
+Tests:
 
-- In `AlgoliaIndexWorker.removeCollection`, if a collection has no Algolia config, do nothing and log at `trace` or `debug`.
-- Keep the current `reindex=true` skip behavior.
-- Replace collection removal by free-text query with exact filtering on the collection-path field already stored in indexed records.
-- Make sure collection-level delete logic behaves correctly for child collections such as `/db/apps/raskovnik-data/data/MBRT.RDG` and does not spill into sibling dictionary collections.
-- Keep collection delete failures at `error` only when the Algolia API call itself fails.
+- Unit-test chunk planning for large change sets.
+- Actor-test that a large change set is sent as multiple bounded batches.
+- Actor-test that a chunk failure stops or marks the overall change set as failed.
 
-### 3. Keep fallback node ids, improve observability
+### 2. Wait for collection deletes to finish
 
-- Preserve fallback behavior when `userSpecifiedNodeId` is missing.
-- Keep the current fallback object-id shape for now:
-  - `collectionId/documentId/nodeId`
-- Do not add new config flags in this patch.
-- Improve logging when fallback is used:
-  - one summary warning per document/index/path grouping
-  - include index name, collection path, document id, configured node-id path, and affected root-object count
-- Fix the misleading `visibleBy` warning text so it no longer refers to “document id”.
+Current behavior submits `deleteByQuery` for collection removal and logs success once the request is accepted. It does not prove Algolia has completed the delete task.
 
-### 4. Add missing tests
+Required changes:
 
-- Add actor-level tests for:
-  - `getLatestTimestampDir` on missing directories
-  - `RemoveDocument` on missing prior state
-  - `FindChanges` with no previous state
-- Add tests for collection removal with no Algolia config.
-- Add tests for exact collection-path delete behavior.
-- Add integration coverage for missing `userSpecifiedNodeId` where fallback remains enabled.
-- Add integration coverage for dictionary-only replacement of `/db/apps/raskovnik-data/data/<DICT_ID>`.
-- Add integration coverage for release-set partial-change behavior where one dictionary is replaced and unchanged sibling dictionaries are left alone.
+- Call `waitForCompletion()` or the equivalent task-wait API on collection `deleteByQuery` results.
+- Keep using exact filtering on the stored `collection` field.
+- Continue deleting exactly the requested collection tree in local store, without spilling into sibling dictionaries.
+- Include Algolia task ids in logs if exposed by the client.
+- Treat timeout or wait failure as a real delete failure.
 
-## Test Plan
+Tests:
 
-- Unit tests for the local-store actor missing-directory and no-op removal cases.
-- Unit or actor tests for exact collection-path delete behavior.
-- Integration test that verifies missing node-id paths still index with fallback IDs.
-- Integration test that verifies targeted reindex of `/db/apps/raskovnik-data/data/<DICT_ID>` updates only that dictionary's records.
-- Integration test that verifies one-dictionary replacement does not force republish of unchanged sibling dictionaries.
-- Manual staging validation:
-  - no `NoSuchFileException` for `/exist/data/algolia-index/indexes/ras/<doc-id>`
-  - no `Cannot remove Algolia indexes ... no collection config found!` at error level
-  - fallback node-id warnings remain visible but are summarized and actionable
-  - unchanged records are not resent merely because prior local-store directories were absent
-  - dictionary-only backend deploys can be followed by targeted backfill of `/db/apps/raskovnik-data/data/<DICT_ID>` without republishing sibling dictionaries
+- Actor-test that collection removal waits for Algolia completion before success is reported.
+- Actor-test that Algolia delete failure is logged and surfaced as failed work.
+- Test that exact collection filters remain escaped correctly.
 
-## Assumptions
+### 3. Serialize delete-then-add for dictionary replacement
 
-- The current fallback object-id scheme remains acceptable for now.
-- The dominant staging failure is local-store missing-state handling, not malformed TEI alone.
-- The existing collection-path field is sufficient to support exact collection deletes.
-- Child collection paths for individual dictionaries are part of the supported deployment model and must be treated as first-class collection targets.
-- This patch set should improve diagnostics through logging and tests, not by adding new operator-facing configuration.
+During package replacement, a dictionary collection can be removed and then re-added quickly. The current actor flow can submit asynchronous Algolia delete work while local-store cleanup and later add work continue independently.
+
+Required changes:
+
+- Introduce an explicit per-index operation queue/barrier:
+  - submit collection delete
+  - wait for Algolia delete completion
+  - clean or update local-store state only after successful delete
+  - allow new additions for that collection after the delete barrier clears
+- Ensure a dictionary-only replacement of `/db/apps/raskovnik-data/data/<DICT_ID>` cannot race old-record deletion against new-record addition.
+- Serialize Algolia mutations within each target Algolia index. For Raskovnik, that means operations against the shared `ras` index run one at a time.
+- Preserve parallelism across unrelated Algolia indexes if the actor model can do so cleanly.
+- Defer per-collection concurrency within a single Algolia index until staging measurements show per-index serialization is too slow.
+- If per-collection concurrency is added later, keep strict ordering within each collection path and add a global Algolia request throttle.
+
+Tests:
+
+- Actor/integration test for remove-then-add ordering for the same collection.
+- Integration test for replacing only `/db/apps/raskovnik-data/data/VSK.SR`.
+- Integration test proving sibling dictionaries under `/db/apps/raskovnik-data/data/<OTHER_DICT>` are not deleted or republished during a one-dictionary replacement.
+
+### 4. Coordinate local-store cleanup with Algolia success
+
+Current local-store collection removal can delete local root-object JSON before Algolia has definitely removed the corresponding remote records. If the remote delete fails or does not complete, the local store can lose the state needed to reason about stale Algolia records.
+
+Required changes:
+
+- Do not permanently remove local-store records for a collection until the corresponding Algolia delete succeeds.
+- Do not build a full local transaction system in this hardening pass.
+- Keep cleanup and indexing operations idempotent enough that a targeted reindex can repair interrupted work.
+- If a process crash interrupts delete/add work, expose enough degraded status or logging for operators to know which index and collection need targeted reindexing.
+- Keep `RemoveDocument` idempotent for absent local state.
+
+Tests:
+
+- Actor-test that local-store cleanup is not committed if Algolia collection delete fails.
+- Recovery test showing missing or partial local-store state can be repaired by targeted reindex.
+- Regression test for the prior `key not found` local-store failures seen during replacement.
+
+### 5. Surface indexing failures to deploy tooling
+
+Current Algolia failures are logged, but eXist package deployment and backend deployment verification can still complete successfully. That makes production deployment look green while the search index is stale.
+
+Required changes:
+
+- Track the latest indexing operation status per index and collection.
+- Record terminal failures from:
+  - batch writes
+  - document deletes
+  - collection deletes
+  - index drops
+- Expose status through a lightweight eXist endpoint, log marker, or management query that deploy tooling can check.
+- Do not fail an otherwise successful eXist package deployment solely because Algolia indexing failed.
+- Produce an explicit degraded deployment/indexing status when Algolia indexing fails.
+- Keep the status degraded until a successful targeted reindex or follow-up indexing operation clears it.
+- Make deployment summaries distinguish:
+  - deployment failed
+  - deployed with search indexing current
+  - deployed with search indexing degraded
+- Include enough status detail for operators:
+  - index name
+  - collection path
+  - operation type
+  - failure class/message
+  - timestamp
+  - retryable vs terminal, if known
+
+Tests:
+
+- Actor-test that Algolia failures update status.
+- Smoke/integration test that a simulated Algolia failure is visible to deployment verification.
+
+### 6. Add retry and backoff for transient Algolia errors
+
+Large replacement operations can hit network failures, temporary Algolia service errors, or rate limits.
+
+Required changes:
+
+- Add bounded retry with exponential backoff for retryable failures.
+- Treat likely retryable responses separately from terminal failures:
+  - retry `429`
+  - retry selected `5xx`
+  - evaluate whether any `403` responses are retryable in this context; quota-related `403` should usually be terminal
+- Log every retry attempt with operation context and delay.
+- Stop retrying before eXist or deploy timeouts make the process opaque.
+
+Tests:
+
+- Unit-test retry classification.
+- Actor-test successful retry after transient failure.
+- Actor-test terminal quota failure is not retried indefinitely.
+
+### 7. Keep fallback object IDs for current production data
+
+Fallback object IDs are still intentionally supported, but they are less stable than user-specified node IDs. They remain acceptable for production dictionaries for now because indexing the current data has higher priority than forcing TEI cleanup first. Missing configured node IDs can be fixed in the data later.
+
+Required changes:
+
+- Keep the current fallback shape for compatibility:
+
+```text
+collectionId/documentId/nodeId
+```
+
+- Add diagnostics that make fallback usage easy to count per document and per index.
+- Consider an operator-facing report for documents that index with fallback IDs.
+- Do not fail production indexing solely because fallback object IDs were used.
+- Preserve enough diagnostics to support later data cleanup.
+
+Tests:
+
+- Keep existing missing-nodeId fallback integration coverage.
+- Add assertions around summary logging or status reporting if status tracking is introduced.
+
+### 8. Improve DropIndex acknowledgement behavior
+
+`DropIndex` currently sends `DroppedIndex` immediately after starting the async delete and can send another acknowledgement after completion. That is inconsistent with the stronger task-completion semantics needed elsewhere.
+
+Required changes:
+
+- Send `DroppedIndex` only after Algolia confirms index deletion.
+- On failure, log and surface failure instead of acknowledging success.
+- Stop the per-index actor only after final success or after a clearly handled terminal failure.
+
+Tests:
+
+- Actor-test that `DroppedIndex` is emitted only after delete completion.
+- Actor-test that delete failure does not emit a success acknowledgement.
+
+### 9. Add Raskovnik deployment-scenario coverage
+
+The backend now packages dictionaries separately, but the plugin should still test the behaviors that matter to that deployment model.
+
+Required tests:
+
+- Dictionary-only replacement:
+  - replace `/db/apps/raskovnik-data/data/VSK.SR`
+  - verify only `VSK.SR` collection records are removed/reindexed
+  - verify sibling dictionary records are not touched
+- Release-set partial change:
+  - simulate one changed dictionary and one unchanged sibling dictionary
+  - verify unchanged sibling data is not republished merely because a release set was deployed
+- Targeted reindex:
+  - reindex `/db/apps/raskovnik-data/data/<DICT_ID>`
+  - verify the operation is scoped to that dictionary collection tree
+
+These tests can use small fixture dictionaries; they do not need full production-sized XML.
+
+## Manual Validation Before Production Use
+
+Before deploying a fixed plugin to production, validate against staging with a dictionary-sized workload:
+
+- Replace one dictionary collection.
+- Confirm Algolia delete task completes before additions begin.
+- Confirm additions are sent in bounded chunks.
+- Confirm no batch request contains tens of thousands of operations.
+- Confirm stale records for the replaced dictionary are gone before new records are added.
+- Confirm sibling dictionary record counts and objectIDs are unchanged.
+- Confirm deployment tooling reports Algolia failure if a simulated batch or delete fails.
+- Confirm logs contain no local-store `key not found` errors.
+
+## Open Design Decisions
+
+None at this time.

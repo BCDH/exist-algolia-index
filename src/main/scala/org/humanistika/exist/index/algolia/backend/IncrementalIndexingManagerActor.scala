@@ -19,9 +19,9 @@ package org.humanistika.exist.index.algolia.backend
 
 import java.nio.file.Path
 
-import org.humanistika.exist.index.algolia.{CollectionId, DocumentId, IndexName, IndexableRootObject}
+import org.humanistika.exist.index.algolia.{CollectionId, CollectionPath, DocumentId, IndexName, IndexableRootObject}
 import IncrementalIndexingManagerActor._
-import akka.actor.{Actor, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import IndexLocalStoreDocumentActor._
 import org.humanistika.exist.index.algolia.AlgoliaIndex.Authentication
 
@@ -35,12 +35,18 @@ object IncrementalIndexingManagerActor {
   case class IndexChanges(indexName: IndexName, changes: Changes)
   case class RemoveForDocument(indexName: IndexName, documentId: DocumentId, userSpecifiedDocumentId: Option[String], userSpecifiedVisibleBy: Option[String])
   case class RemoveForCollection(indexName: IndexName, collectionPath: String)
+  case class RemovedCollection(indexName: IndexName, collectionPath: String)
+  case class AlgoliaRemoveForCollectionSucceeded(indexName: IndexName, collectionPath: String)
+  case class AlgoliaRemoveForCollectionFailed(indexName: IndexName, collectionPath: String, error: Throwable)
+  case class ConfigureIndex(indexName: IndexName, batchSize: Option[Int])
   case object DropIndexes
 }
 
 class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
   private val algoliaIndexManagerActor = context.actorOf(Props[AlgoliaIndexManagerActor], AlgoliaIndexManagerActor.ACTOR_NAME)
   private val indexLocalStoreManagerActor = context.actorOf(Props(classOf[IndexLocalStoreManagerActor], dataDir), IndexLocalStoreManagerActor.ACTOR_NAME)
+  private var blockedCollectionsByIndex: Map[IndexName, CollectionPath] = Map.empty
+  private var queuedByIndex: Map[IndexName, Vector[Any]] = Map.empty
 
   override def receive = {
 
@@ -48,34 +54,78 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
     case auth: Authentication =>
       algoliaIndexManagerActor ! auth
 
+    case configureIndex: ConfigureIndex =>
+      algoliaIndexManagerActor ! configureIndex
+
 
     /* messages for IndexLocalStoreManagerActor */
-    case startDocument: StartDocument =>
-      indexLocalStoreManagerActor ! startDocument
+    case startDocument @ StartDocument(indexName, _, _) =>
+      forwardOrQueue(indexName, startDocument, indexLocalStoreManagerActor)
 
-    case add: Add =>
-      indexLocalStoreManagerActor ! add
+    case add @ Add(indexName, _) =>
+      forwardOrQueue(indexName, add, indexLocalStoreManagerActor)
 
-    case finishDocument: FinishDocument =>
-      indexLocalStoreManagerActor ! finishDocument
+    case finishDocument @ FinishDocument(indexName, _, _, _) =>
+      forwardOrQueue(indexName, finishDocument, indexLocalStoreManagerActor)
 
 
     /* messages from IndexLocalStoreManagerActor */
-    case indexChanges : IndexChanges =>
-      algoliaIndexManagerActor ! indexChanges
+    case indexChanges @ IndexChanges(indexName, _) =>
+      forwardOrQueue(indexName, indexChanges, algoliaIndexManagerActor)
+
+    case RemovedCollection(indexName, collectionPath) =>
+      blockedCollectionsByIndex = blockedCollectionsByIndex - indexName
+      replayQueued(indexName)
 
 
     /* messages to AlgoliaIndexManagerActor and IndexLocalStoreManagerActor */
-    case removeForDocument : RemoveForDocument =>
-      algoliaIndexManagerActor ! removeForDocument
-      indexLocalStoreManagerActor ! removeForDocument
+    case removeForDocument @ RemoveForDocument(indexName, _, _, _) =>
+      if (blockedCollectionsByIndex.contains(indexName)) {
+        queuedByIndex = queuedByIndex + (indexName -> (queuedByIndex.getOrElse(indexName, Vector.empty) :+ removeForDocument))
+      } else {
+        algoliaIndexManagerActor ! removeForDocument
+        indexLocalStoreManagerActor ! removeForDocument
+      }
 
-    case removeForCollection : RemoveForCollection =>
-      algoliaIndexManagerActor ! removeForCollection
-      indexLocalStoreManagerActor ! removeForCollection
+    case removeForCollection @ RemoveForCollection(indexName, collectionPath) =>
+      if (blockedCollectionsByIndex.contains(indexName)) {
+        queuedByIndex = queuedByIndex + (indexName -> (queuedByIndex.getOrElse(indexName, Vector.empty) :+ removeForCollection))
+      } else {
+        blockedCollectionsByIndex = blockedCollectionsByIndex + (indexName -> collectionPath)
+        algoliaIndexManagerActor ! removeForCollection
+      }
+
+    case AlgoliaRemoveForCollectionSucceeded(indexName, collectionPath) =>
+      indexLocalStoreManagerActor ! RemoveForCollection(indexName, collectionPath)
+
+    case AlgoliaRemoveForCollectionFailed(indexName, collectionPath, _) =>
+      blockedCollectionsByIndex = blockedCollectionsByIndex - indexName
+      replayQueued(indexName)
 
     case dropIndexes @ DropIndexes =>
       algoliaIndexManagerActor ! dropIndexes
       indexLocalStoreManagerActor ! dropIndexes
+  }
+
+  private def forwardOrQueue(indexName: IndexName, message: Any, target: ActorRef): Unit = {
+    if (blockedCollectionsByIndex.contains(indexName)) {
+      queuedByIndex = queuedByIndex + (indexName -> (queuedByIndex.getOrElse(indexName, Vector.empty) :+ message))
+    } else {
+      target ! message
+    }
+  }
+
+  private def replayQueued(indexName: IndexName): Unit = {
+    val queued = queuedByIndex.getOrElse(indexName, Vector.empty)
+    queuedByIndex = queuedByIndex - indexName
+    queued.foreach {
+      case startDocument @ StartDocument(_, _, _) => self ! startDocument
+      case add @ Add(_, _) => self ! add
+      case finishDocument @ FinishDocument(_, _, _, _) => self ! finishDocument
+      case indexChanges @ IndexChanges(_, _) => self ! indexChanges
+      case removeForDocument @ RemoveForDocument(_, _, _, _) => self ! removeForDocument
+      case removeForCollection @ RemoveForCollection(_, _) => self ! removeForCollection
+      case other => self ! other
+    }
   }
 }
