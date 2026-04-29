@@ -8,6 +8,15 @@ source "${SCRIPT_DIR}/exist-common.sh"
 
 EXIST_ADMIN_USER=${EXIST_ADMIN_USER:-admin}
 EXIST_LOCAL_ADMIN_PASSWORD=${EXIST_LOCAL_ADMIN_PASSWORD:-${EXIST_ADMIN_PASSWORD:-}}
+EXIST_LOCAL_ALGOLIA_APPLICATION_ID=${EXIST_LOCAL_ALGOLIA_APPLICATION_ID:-}
+EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY=${EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY:-}
+EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME=${EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME:-exist-algolia-index-smoke-local}
+EXIST_LOCAL_REINDEX_COLLECTION=${EXIST_LOCAL_REINDEX_COLLECTION:-}
+
+export ALGOLIA_APPLICATION_ID="${EXIST_LOCAL_ALGOLIA_APPLICATION_ID}"
+export ALGOLIA_ADMIN_API_KEY="${EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY}"
+export ALGOLIA_SMOKE_INDEX_NAME="${EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME}"
+SMOKE_INDEX_NAME="${EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME}"
 
 usage() {
   cat <<'EOF'
@@ -26,8 +35,8 @@ Commands:
 
 Required environment:
   EXIST_HOME
-  ALGOLIA_APPLICATION_ID
-  ALGOLIA_ADMIN_API_KEY
+  EXIST_LOCAL_ALGOLIA_APPLICATION_ID
+  EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY
 
 Additional required environment for verify/run:
   EXIST_LOCAL_ADMIN_PASSWORD
@@ -38,8 +47,8 @@ Optional environment:
   EXIST_STARTUP_XML
   EXIST_PLUGIN_LIB_DIR
   EXIST_RESTART_CMD
-  ALGOLIA_SMOKE_INDEX_NAME
-  EXIST_REINDEX_COLLECTION=/db
+  EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke-local
+  EXIST_LOCAL_REINDEX_COLLECTION=/db
 EOF
 }
 
@@ -59,7 +68,7 @@ require_collection_path() {
 
 resolve_reindex_collection() {
   local override_value=${1:-}
-  local collection_path=${override_value:-${EXIST_REINDEX_COLLECTION:-/db}}
+  local collection_path=${override_value:-${EXIST_LOCAL_REINDEX_COLLECTION:-/db}}
   require_collection_path "${collection_path}"
   printf '%s' "${collection_path}"
 }
@@ -67,6 +76,17 @@ resolve_reindex_collection() {
 require_local_admin() {
   if [[ -z "${EXIST_LOCAL_ADMIN_PASSWORD:-}" ]]; then
     echo "EXIST_LOCAL_ADMIN_PASSWORD must be set for verification and smoke reindex checks." >&2
+    exit 1
+  fi
+}
+
+require_local_algolia_credentials() {
+  if [[ -z "${EXIST_LOCAL_ALGOLIA_APPLICATION_ID:-}" ]]; then
+    echo "EXIST_LOCAL_ALGOLIA_APPLICATION_ID must be set." >&2
+    exit 1
+  fi
+  if [[ -z "${EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY:-}" ]]; then
+    echo "EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY must be set." >&2
     exit 1
   fi
 }
@@ -225,7 +245,7 @@ configure_plugin() {
   local conf_xml
 
   require_cmd python3
-  require_algolia_credentials
+  require_local_algolia_credentials
   conf_xml=$(resolve_local_conf_xml)
 
   echo "Updating ${conf_xml}"
@@ -371,7 +391,7 @@ verify_install() {
   local conf_xml startup_xml plugin_lib_dir installed_jar restart_log=${1:-}
 
   require_cmd python3
-  require_algolia_credentials
+  require_local_algolia_credentials
   conf_xml=$(resolve_local_conf_xml)
   startup_xml=$(resolve_local_startup_xml)
   plugin_lib_dir=$(resolve_local_plugin_lib_dir)

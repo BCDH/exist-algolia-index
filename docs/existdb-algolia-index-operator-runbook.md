@@ -17,6 +17,16 @@ It assumes the current `raskovnik-backend` deployment architecture:
 - backend operators may deploy either one dictionary at a time or a full release set
 - release-set deploys may skip unchanged dictionaries and replace only the components that changed
 
+## Environment Naming
+
+Use environment-scoped names in operator `.env` files:
+
+- `EXIST_LOCAL_*` for local installs
+- `EXIST_STAGE_*` for staging hotpatch validation
+- `EXIST_PRODUCTION_*` for production hotpatches
+
+Algolia application IDs, admin API keys, smoke index names, container names, and default reindex targets should all stay scoped this way. The generic `ALGOLIA_*`, `EXISTDB_CONTAINER_NAME`, and `EXIST_REINDEX_COLLECTION` names are only used internally when wrapper scripts call shared helper code.
+
 ## Backfill Scope
 
 For Raskovnik, the full dictionary corpus lives under:
@@ -42,6 +52,13 @@ In practice:
 
 ## Local Operator Flow
 
+For local testing, set local-specific Algolia credentials:
+
+```bash
+EXIST_LOCAL_ALGOLIA_APPLICATION_ID=your-local-algolia-application-id
+EXIST_LOCAL_ALGOLIA_ADMIN_API_KEY=your-local-algolia-admin-api-key
+```
+
 From the `exist-algolia-index` checkout:
 
 ```bash
@@ -51,7 +68,7 @@ From the `exist-algolia-index` checkout:
 For local Raskovnik data, the normal backfill target should be:
 
 ```bash
-EXIST_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
+EXIST_LOCAL_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
 ```
 
 Use `run --skip-reindex` only if you deliberately want to deploy the plugin without immediately backfilling existing data:
@@ -100,16 +117,16 @@ Set at least:
 EXIST_STAGE_HOST=your-staging-host
 EXIST_STAGE_SSH_USER=your-deploy-user
 EXIST_STAGE_ADMIN_PASSWORD=your-staging-admin-password
-EXISTDB_CONTAINER_NAME=existdb-stage
-ALGOLIA_APPLICATION_ID=your-algolia-application-id
-ALGOLIA_ADMIN_API_KEY=your-algolia-admin-api-key
-EXIST_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
+EXIST_STAGE_CONTAINER_NAME=existdb-stage
+EXIST_STAGE_ALGOLIA_APPLICATION_ID=your-staging-algolia-application-id
+EXIST_STAGE_ALGOLIA_ADMIN_API_KEY=your-staging-algolia-admin-api-key
+EXIST_STAGE_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
 ```
 
 For a staging run that follows a one-dictionary backend deploy, you can narrow the reindex target before running the plugin helper:
 
 ```bash
-EXIST_REINDEX_COLLECTION=/db/apps/raskovnik-data/data/MBRT.RDG
+EXIST_STAGE_REINDEX_COLLECTION=/db/apps/raskovnik-data/data/MBRT.RDG
 ```
 
 ### Install and Verify
@@ -153,7 +170,7 @@ For a one-dictionary staging backfill after a targeted backend deploy:
 ./scripts/exist-stage.sh reindex-collection /db/apps/raskovnik-data/data/MBRT.RDG
 ```
 
-If `EXIST_REINDEX_COLLECTION=/db/apps/raskovnik-data/data` is already set, a normal `run` should perform that backfill automatically after a successful install and smoke verification.
+If `EXIST_STAGE_REINDEX_COLLECTION=/db/apps/raskovnik-data/data` is already set, a normal `run` should perform that backfill automatically after a successful install and smoke verification.
 
 ### Expected Result
 
@@ -168,6 +185,45 @@ After a successful install and backfill:
 ### Troubleshooting
 
 - If restart appears to work but the plugin is not active, first verify that the container starts with the plugin JAR on `CLASSPATH`.
-- If backfill is unexpectedly broad, check that `EXIST_REINDEX_COLLECTION` points either to `/db/apps/raskovnik-data/data` or to the intended `/db/apps/raskovnik-data/data/<DICT_ID>`, not `/db` or `/db/apps/raskovnik-data`.
+- If backfill is unexpectedly broad, check that `EXIST_STAGE_REINDEX_COLLECTION` points either to `/db/apps/raskovnik-data/data` or to the intended `/db/apps/raskovnik-data/data/<DICT_ID>`, not `/db` or `/db/apps/raskovnik-data`.
 - If a one-dictionary backend deploy causes sibling dictionaries to be republished, treat that as a regression. Targeted backend replacement should allow targeted Algolia backfill.
 - If an unchanged full reindex starts republishing records to Algolia again, treat that as a regression in the local diff logic and inspect the plugin version actually installed in the container.
+
+## Production Hotpatch
+
+Use `scripts/exist-production-hotpatch.sh` when you need to test a plugin build on the production eXist container before baking it into the default Docker image. This is a live production hotpatch: it uploads the local assembly JAR, installs it into the production container, updates eXist config if needed, restarts production eXist, runs the smoke verification, and reindexes the configured production collection by default.
+
+Set production-specific env names instead of reusing the staging variables:
+
+```bash
+EXIST_PRODUCTION_HOST=your-production-host
+EXIST_PRODUCTION_PORT=22
+EXIST_PRODUCTION_SSH_USER=your-production-user
+EXIST_PRODUCTION_REMOTE_DIR=/tmp/exist-algolia-production-hotpatch
+EXIST_PRODUCTION_CONTAINER_NAME=existdb-production
+EXIST_PRODUCTION_ADMIN_PASSWORD=your-production-admin-password
+EXIST_PRODUCTION_ALGOLIA_APPLICATION_ID=your-production-algolia-application-id
+EXIST_PRODUCTION_ALGOLIA_ADMIN_API_KEY=your-production-algolia-admin-api-key
+EXIST_PRODUCTION_ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke-production-hotpatch
+EXIST_PRODUCTION_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
+```
+
+Run the production hotpatch and reindex the configured production collection:
+
+```bash
+./scripts/exist-production-hotpatch.sh run
+```
+
+Run the hotpatch but skip the production data reindex:
+
+```bash
+./scripts/exist-production-hotpatch.sh run --skip-reindex
+```
+
+Reindex a specific production dictionary after the hotpatch:
+
+```bash
+./scripts/exist-production-hotpatch.sh reindex-collection /db/apps/raskovnik-data/data/VSK.SR
+```
+
+The hotpatch is not a replacement for the production image. It can survive ordinary container restarts because the script copies the JAR into the running container, but it should be treated as temporary operational state. Recreating production from the published Docker image can remove the hotpatched JAR unless the image is rebuilt with that plugin version.

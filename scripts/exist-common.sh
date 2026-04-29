@@ -292,14 +292,14 @@ delete_algolia_index() {
   if curl -fsS -X DELETE \
     -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
     -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
-    "https://${ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
+    "https://${ALGOLIA_APPLICATION_ID}.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
     return 0
   fi
 
   if curl -fsS -X DELETE \
     -H "X-Algolia-API-Key: ${ALGOLIA_ADMIN_API_KEY}" \
     -H "X-Algolia-Application-Id: ${ALGOLIA_APPLICATION_ID}" \
-    "https://${ALGOLIA_APPLICATION_ID}.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
+    "https://${ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encoded_index}" >/dev/null 2>&1; then
     return 0
   fi
 

@@ -9,8 +9,12 @@ source "${SCRIPT_DIR}/exist-common.sh"
 EXIST_STAGE_PORT=${EXIST_STAGE_PORT:-22}
 EXIST_STAGE_REMOTE_DIR=${EXIST_STAGE_REMOTE_DIR:-/tmp/exist-algolia-stage}
 EXIST_STAGE_SSH_USER=${EXIST_STAGE_SSH_USER:-}
-EXISTDB_CONTAINER_NAME=${EXISTDB_CONTAINER_NAME:-existdb-stage}
+EXIST_STAGE_CONTAINER_NAME=${EXIST_STAGE_CONTAINER_NAME:-existdb-stage}
 EXIST_STAGE_ADMIN_PASSWORD=${EXIST_STAGE_ADMIN_PASSWORD:-${EXIST_ADMIN_PASSWORD:-}}
+EXIST_STAGE_ALGOLIA_APPLICATION_ID=${EXIST_STAGE_ALGOLIA_APPLICATION_ID:-}
+EXIST_STAGE_ALGOLIA_ADMIN_API_KEY=${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY:-}
+EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME=${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-exist-algolia-index-smoke-staging}
+EXIST_STAGE_REINDEX_COLLECTION=${EXIST_STAGE_REINDEX_COLLECTION:-}
 
 usage() {
   cat <<'EOF'
@@ -34,20 +38,22 @@ Required environment for upload:
   EXIST_STAGE_SSH_USER
 
 Additional required environment for deploy/run:
-  ALGOLIA_APPLICATION_ID
-  ALGOLIA_ADMIN_API_KEY
+  EXIST_STAGE_ALGOLIA_APPLICATION_ID
+  EXIST_STAGE_ALGOLIA_ADMIN_API_KEY
   EXIST_STAGE_ADMIN_PASSWORD
+  EXIST_STAGE_REINDEX_COLLECTION, unless run gets an explicit /db path
+  or --skip-reindex is used
 
 Optional environment:
   EXIST_STAGE_PORT=22
   EXIST_STAGE_REMOTE_DIR=/tmp/exist-algolia-stage
-  EXISTDB_CONTAINER_NAME=existdb-stage
+  EXIST_STAGE_CONTAINER_NAME=existdb-stage
   EXIST_STAGE_CONF_XML=/exist/etc/conf.xml
   EXIST_STAGE_STARTUP_XML=/exist/etc/startup.xml
   EXIST_STAGE_PLUGIN_LIB_DIR=/exist/lib
   EXIST_STAGE_RESTART_CMD="docker restart existdb-stage"
-  ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke
-  EXIST_REINDEX_COLLECTION=/db
+  EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke-staging
+  EXIST_STAGE_REINDEX_COLLECTION=/db/apps/raskovnik-data/data
 EOF
 }
 
@@ -80,9 +86,25 @@ require_stage_prereqs() {
 }
 
 require_stage_secrets() {
-  require_algolia_credentials
   if [[ -z "${EXIST_STAGE_ADMIN_PASSWORD:-}" ]]; then
     echo "EXIST_STAGE_ADMIN_PASSWORD must be set for staging deploys." >&2
+    exit 1
+  fi
+  if [[ -z "${EXIST_STAGE_ALGOLIA_APPLICATION_ID:-}" ]]; then
+    echo "EXIST_STAGE_ALGOLIA_APPLICATION_ID must be set for staging deploys." >&2
+    exit 1
+  fi
+  if [[ -z "${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY:-}" ]]; then
+    echo "EXIST_STAGE_ALGOLIA_ADMIN_API_KEY must be set for staging deploys." >&2
+    exit 1
+  fi
+}
+
+require_stage_reindex_target() {
+  local collection_path=${1:-}
+
+  if [[ -z "${collection_path}" && -z "${EXIST_STAGE_REINDEX_COLLECTION:-}" ]]; then
+    echo "EXIST_STAGE_REINDEX_COLLECTION must be set when run will reindex by default, or pass an explicit /db collection path." >&2
     exit 1
   fi
 }
@@ -128,16 +150,16 @@ run_remote_helper() {
   local remote_command_quoted collection_path_quoted
 
   remote_dir_quoted=$(printf '%q' "${EXIST_STAGE_REMOTE_DIR}")
-  container_quoted=$(printf '%q' "${EXISTDB_CONTAINER_NAME}")
+  container_quoted=$(printf '%q' "${EXIST_STAGE_CONTAINER_NAME}")
   stage_password_quoted=$(printf '%q' "${EXIST_STAGE_ADMIN_PASSWORD}")
-  app_id_quoted=$(printf '%q' "${ALGOLIA_APPLICATION_ID}")
-  api_key_quoted=$(printf '%q' "${ALGOLIA_ADMIN_API_KEY}")
+  app_id_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_APPLICATION_ID}")
+  api_key_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY}")
   conf_quoted=$(printf '%q' "${EXIST_STAGE_CONF_XML:-}")
   startup_quoted=$(printf '%q' "${EXIST_STAGE_STARTUP_XML:-}")
   lib_quoted=$(printf '%q' "${EXIST_STAGE_PLUGIN_LIB_DIR:-}")
   restart_quoted=$(printf '%q' "${EXIST_STAGE_RESTART_CMD:-}")
-  smoke_index_quoted=$(printf '%q' "${ALGOLIA_SMOKE_INDEX_NAME:-}")
-  reindex_quoted=$(printf '%q' "${EXIST_REINDEX_COLLECTION:-}")
+  smoke_index_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-}")
+  reindex_quoted=$(printf '%q' "${EXIST_STAGE_REINDEX_COLLECTION:-}")
   skip_reindex_quoted=$(printf '%q' "${skip_reindex}")
   remote_command_quoted=$(printf '%q' "${remote_command}")
   collection_path_quoted=$(printf '%q' "${collection_path}")
@@ -179,6 +201,9 @@ deploy_all() {
   require_stage_prereqs
   require_stage_target
   require_stage_secrets
+  if [[ "${skip_reindex}" -eq 0 ]]; then
+    require_stage_reindex_target "${collection_path}"
+  fi
   upload_only "${skip_build}"
   run_remote_helper run "${collection_path}" "${skip_reindex}"
 }
