@@ -7,13 +7,15 @@ import akka.actor.{Actor, ActorRef, Props}
 import com.algolia.search.exceptions.AlgoliaHttpException
 import com.algolia.search.inputs.BatchOperation
 import com.algolia.search.objects.Query
-import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.COLLECTION_PATH_FIELD_NAME
+import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import org.humanistika.exist.index.algolia.backend.AlgoliaIndexActor.{DroppedIndex, DropIndex}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{AlgoliaRemoveForCollectionSucceeded, RemoveForCollection}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{AlgoliaRemoveForCollectionSucceeded, RemoveForCollection, RemoveForDocument}
 import org.humanistika.exist.index.algolia.backend.{AlgoliaIndexActor, AlgoliaIndexClient}
-import org.humanistika.exist.index.algolia.backend.AlgoliaIndexManagerActor.exactCollectionPathFilter
+import org.humanistika.exist.index.algolia.backend.AlgoliaIndexManagerActor.{exactCollectionPathFacetFilter, exactCollectionPathFilter, exactDocumentIdFacetFilter, exactDocumentIdNumericFilter}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.Changes
 import org.specs2.mutable.Specification
+
+import scala.collection.JavaConverters._
 
 class AlgoliaIndexManagerActorSpec extends Specification {
 
@@ -26,6 +28,18 @@ class AlgoliaIndexManagerActorSpec extends Specification {
     "escape quotes in collection paths" in {
       exactCollectionPathFilter("/db/apps/\"quoted\"") mustEqual
         s"""$COLLECTION_PATH_FIELD_NAME:${'"'}/db/apps/\\\"quoted\\\"${'"'}"""
+    }
+  }
+
+  "delete-by filters" should {
+    "build collection facet filters accepted by Algolia deleteBy" in {
+      exactCollectionPathFacetFilter("/db/apps/raskovnik-data/data/MBRT.RDG") mustEqual
+        s"$COLLECTION_PATH_FIELD_NAME:/db/apps/raskovnik-data/data/MBRT.RDG"
+    }
+
+    "build document id filters accepted by Algolia deleteBy" in {
+      exactDocumentIdNumericFilter(2220) mustEqual s"$DOCUMENT_ID_FIELD_NAME = 2220"
+      exactDocumentIdFacetFilter("VSK.SR-1") mustEqual s"$DOCUMENT_ID_FIELD_NAME:VSK.SR-1"
     }
   }
 
@@ -89,6 +103,41 @@ class AlgoliaIndexManagerActorSpec extends Specification {
       expectMsg(AlgoliaRemoveForCollectionSucceeded("ras", "/db/apps/raskovnik-data/data/VSK.SR"))
     }
 
+    "delete collections using facet filters rather than full search filters" in new AkkaTestkitSpecs2Support {
+      val client = new RecordingAlgoliaClient
+      val harness = actorHarness("ras", client, 1000)(this)
+
+      harness ! RemoveForCollection("ras", "/db/apps/raskovnik-data/data/VSK.SR")
+
+      awaitCond(client.deleteQueries.nonEmpty)
+      client.deleteQueries.head.getFacetFilters.asScala mustEqual Seq(s"$COLLECTION_PATH_FIELD_NAME:/db/apps/raskovnik-data/data/VSK.SR")
+      client.deleteQueries.head.getFilters must beNull
+    }
+
+    "delete numeric eXist document ids using numeric filters" in new AkkaTestkitSpecs2Support {
+      val client = new RecordingAlgoliaClient
+      val harness = actorHarness("ras", client, 1000)(this)
+
+      harness ! RemoveForDocument("ras", 2220, None, None)
+
+      awaitCond(client.deleteQueries.nonEmpty)
+      client.deleteQueries.head.getNumericFilters.asScala mustEqual Seq(s"$DOCUMENT_ID_FIELD_NAME = 2220")
+      client.deleteQueries.head.getFacetFilters must beNull
+      client.deleteQueries.head.getRestrictSearchableAttributes must beNull
+    }
+
+    "delete user-specified document ids using facet filters" in new AkkaTestkitSpecs2Support {
+      val client = new RecordingAlgoliaClient
+      val harness = actorHarness("ras", client, 1000)(this)
+
+      harness ! RemoveForDocument("ras", 2221, Some("smoke-doc"), None)
+
+      awaitCond(client.deleteQueries.nonEmpty)
+      client.deleteQueries.head.getFacetFilters.asScala mustEqual Seq(s"$DOCUMENT_ID_FIELD_NAME:smoke-doc")
+      client.deleteQueries.head.getNumericFilters must beNull
+      client.deleteQueries.head.getRestrictSearchableAttributes must beNull
+    }
+
     "acknowledge index drop only after the delete completes" in new AkkaTestkitSpecs2Support {
       val deleteStarted = new CountDownLatch(1)
       val allowDeleteToFinish = new CountDownLatch(1)
@@ -106,13 +155,17 @@ class AlgoliaIndexManagerActorSpec extends Specification {
 
   private class RecordingAlgoliaClient extends AlgoliaIndexClient {
     @volatile var batchSizes: Vector[Int] = Vector.empty
+    @volatile var deleteQueries: Vector[Query] = Vector.empty
 
     override def batch(operations: Seq[BatchOperation]): Long = {
       batchSizes = batchSizes :+ operations.size
       batchSizes.size.toLong
     }
 
-    override def deleteBy(query: Query): Long = 1L
+    override def deleteBy(query: Query): Long = {
+      deleteQueries = deleteQueries :+ query
+      deleteQueries.size.toLong
+    }
     override def deleteIndex(): Long = 1L
   }
 

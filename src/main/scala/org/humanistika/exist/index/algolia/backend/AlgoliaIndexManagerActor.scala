@@ -47,6 +47,18 @@ object AlgoliaIndexManagerActor {
       .replace("\"", "\\\"")
     s"""$COLLECTION_PATH_FIELD_NAME:${'"'}$escapedCollectionPath${'"'}"""
   }
+
+  private[algolia] def exactCollectionPathFacetFilter(collectionPath: CollectionPath): String =
+    exactFacetFilter(COLLECTION_PATH_FIELD_NAME, collectionPath)
+
+  private[algolia] def exactDocumentIdFacetFilter(documentId: UserSpecifiedDocumentId): String =
+    exactFacetFilter(DOCUMENT_ID_FIELD_NAME, documentId)
+
+  private[algolia] def exactDocumentIdNumericFilter(documentId: DocumentId): String =
+    s"$DOCUMENT_ID_FIELD_NAME = $documentId"
+
+  private def exactFacetFilter(attribute: String, value: String): String =
+    s"$attribute:$value"
 }
 
 class AlgoliaIndexManagerActor extends Actor {
@@ -124,7 +136,9 @@ class AlgoliaIndexManagerActor extends Actor {
       val newSearchableAttributes = addSearchableAttributes(searchableAttributes,
         COLLECTION_PATH_FIELD_NAME,
         DOCUMENT_ID_FIELD_NAME)
-      val newAttributesForFaceting = addFacetAttribute(attributesForFaceting, COLLECTION_PATH_FIELD_NAME)
+      val newAttributesForFaceting = addFacetAttribute(attributesForFaceting,
+        COLLECTION_PATH_FIELD_NAME,
+        DOCUMENT_ID_FIELD_NAME)
       indexSettings.setSearchableAttributes(newSearchableAttributes.asJava)
       indexSettings.setAttributesForFaceting(newAttributesForFaceting.asJava)
       index.setSettings(indexSettings)
@@ -155,7 +169,23 @@ class AlgoliaIndexManagerActor extends Actor {
         .map(_ => searchableAttributes).getOrElse(searchableAttributes :+ searchableAttribute)
     }
 
-    def addFacetAttribute(attributesForFaceting: Seq[String], attribute: String): Seq[String] = {
+    @tailrec
+    def addFacetAttribute(attributesForFaceting: Seq[String], attribute: String*): Seq[String] = {
+      attribute.headOption match {
+        case None =>
+          attributesForFaceting
+
+        case Some(attr) =>
+          val newAttributesForFaceting = addSingleFacetAttribute(attributesForFaceting, attr)
+          if(attribute.size > 1) {
+            addFacetAttribute(newAttributesForFaceting, attribute.tail:_*)
+          } else {
+            newAttributesForFaceting
+          }
+      }
+    }
+
+    def addSingleFacetAttribute(attributesForFaceting: Seq[String], attribute: String): Seq[String] = {
       val filterOnlyAttribute = s"filterOnly($attribute)"
       attributesForFaceting
         .find(existing => existing.equals(attribute) || existing.equals(filterOnlyAttribute) || existing.equals(s"searchable($attribute)"))
@@ -344,13 +374,17 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
     case DeleteDocument(documentId, userSpecifiedDocumentId) =>
       val query = new Query()
-      query.setRestrictSearchableAttributes(List(DOCUMENT_ID_FIELD_NAME).asJava)
-      query.setQuery(userSpecifiedDocumentId.getOrElse(documentId.toString))
+      userSpecifiedDocumentId match {
+        case Some(userSpecifiedId) =>
+          query.setFacetFilters(List(AlgoliaIndexManagerActor.exactDocumentIdFacetFilter(userSpecifiedId)).asJava)
+        case None =>
+          query.setNumericFilters(List(AlgoliaIndexManagerActor.exactDocumentIdNumericFilter(documentId)).asJava)
+      }
       Seq(algoliaIndexClient.deleteBy(query))
 
     case DeleteCollection(collectionPath) =>
       val query = new Query()
-      query.setFilters(AlgoliaIndexManagerActor.exactCollectionPathFilter(collectionPath))
+      query.setFacetFilters(List(AlgoliaIndexManagerActor.exactCollectionPathFacetFilter(collectionPath)).asJava)
       Seq(algoliaIndexClient.deleteBy(query))
 
     case DeleteIndex =>
