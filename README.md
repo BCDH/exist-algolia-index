@@ -24,7 +24,7 @@ sbt assembly
 The assembly is written to:
 
 ```bash
-target/scala-2.13/exist-algolia-index-assembly-1.1.2.jar
+target/scala-2.13/exist-algolia-index-assembly-1.1.3-SNAPSHOT.jar
 ```
 
 ### Manual install
@@ -55,8 +55,8 @@ The plugin JAR must be built and then installed into eXist manually.
    <dependency>
        <groupId>org.humanistika.exist.index.algolia</groupId>
        <artifactId>exist-algolia-index</artifactId>
-       <version>1.1.2</version>
-       <relativePath>exist-algolia-index-assembly-1.1.2.jar</relativePath>
+       <version>1.1.3-SNAPSHOT</version>
+       <relativePath>exist-algolia-index-assembly-1.1.3-SNAPSHOT.jar</relativePath>
    </dependency>
    ```
 
