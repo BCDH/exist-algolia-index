@@ -39,12 +39,14 @@ object IncrementalIndexingManagerActor {
   case class AlgoliaRemoveForCollectionSucceeded(indexName: IndexName, collectionPath: String)
   case class AlgoliaRemoveForCollectionFailed(indexName: IndexName, collectionPath: String, error: Throwable)
   case class ConfigureIndex(indexName: IndexName, batchSize: Option[Int])
+  case object FlushPendingCollectionRemovals
   case object DropIndexes
 }
 
 class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
-  private val algoliaIndexManagerActor = context.actorOf(Props[AlgoliaIndexManagerActor], AlgoliaIndexManagerActor.ACTOR_NAME)
-  private val indexLocalStoreManagerActor = context.actorOf(Props(classOf[IndexLocalStoreManagerActor], dataDir), IndexLocalStoreManagerActor.ACTOR_NAME)
+  private val indexingStatusStore = IndexingStatusStore(dataDir)
+  private val algoliaIndexManagerActor = context.actorOf(Props(classOf[AlgoliaIndexManagerActor], indexingStatusStore), AlgoliaIndexManagerActor.ACTOR_NAME)
+  private val indexLocalStoreManagerActor = context.actorOf(Props(classOf[IndexLocalStoreManagerActor], dataDir, indexingStatusStore), IndexLocalStoreManagerActor.ACTOR_NAME)
   private var blockedCollectionsByIndex: Map[IndexName, CollectionPath] = Map.empty
   private var queuedByIndex: Map[IndexName, Vector[Any]] = Map.empty
 
@@ -88,12 +90,7 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
       }
 
     case removeForCollection @ RemoveForCollection(indexName, collectionPath) =>
-      if (blockedCollectionsByIndex.contains(indexName)) {
-        queuedByIndex = queuedByIndex + (indexName -> (queuedByIndex.getOrElse(indexName, Vector.empty) :+ removeForCollection))
-      } else {
-        blockedCollectionsByIndex = blockedCollectionsByIndex + (indexName -> collectionPath)
-        algoliaIndexManagerActor ! removeForCollection
-      }
+      indexLocalStoreManagerActor ! removeForCollection
 
     case AlgoliaRemoveForCollectionSucceeded(indexName, collectionPath) =>
       indexLocalStoreManagerActor ! RemoveForCollection(indexName, collectionPath)
@@ -105,6 +102,9 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
     case dropIndexes @ DropIndexes =>
       algoliaIndexManagerActor ! dropIndexes
       indexLocalStoreManagerActor ! dropIndexes
+
+    case FlushPendingCollectionRemovals =>
+      indexLocalStoreManagerActor ! FlushPendingCollectionRemovals
   }
 
   private def forwardOrQueue(indexName: IndexName, message: Any, target: ActorRef): Unit = {
@@ -125,6 +125,7 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
       case indexChanges @ IndexChanges(_, _) => self ! indexChanges
       case removeForDocument @ RemoveForDocument(_, _, _, _) => self ! removeForDocument
       case removeForCollection @ RemoveForCollection(_, _) => self ! removeForCollection
+      case FlushPendingCollectionRemovals => self ! FlushPendingCollectionRemovals
       case other => self ! other
     }
   }

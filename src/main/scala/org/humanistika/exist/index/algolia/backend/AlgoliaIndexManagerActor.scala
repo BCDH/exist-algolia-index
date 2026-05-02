@@ -61,7 +61,9 @@ object AlgoliaIndexManagerActor {
     s"$attribute:$value"
 }
 
-class AlgoliaIndexManagerActor extends Actor {
+class AlgoliaIndexManagerActor(indexingStatusStore: IndexingStatusStore) extends Actor {
+  def this() = this(IndexingStatusStore.noop)
+
   private val logger = Logger(classOf[AlgoliaIndexManagerActor])
   private var client: Option[APIClient] = None
   private var indexingSettings: IndexingSettings = IndexingSettings()
@@ -193,7 +195,7 @@ class AlgoliaIndexManagerActor extends Actor {
         .getOrElse(attributesForFaceting :+ filterOnlyAttribute)
     }
 
-    val perIndexActor = context.actorOf(Props(classOf[AlgoliaIndexActor], indexName, new DefaultAlgoliaIndexClient(initIndex()), indexingSettings.batchSizeFor(indexName)), indexName)
+    val perIndexActor = context.actorOf(Props(classOf[AlgoliaIndexActor], indexName, new DefaultAlgoliaIndexClient(initIndex()), indexingSettings.batchSizeFor(indexName), indexingStatusStore), indexName)
     perIndexActors = perIndexActors + (indexName -> perIndexActor)
     perIndexActor
   }
@@ -280,7 +282,13 @@ private[algolia] class DefaultAlgoliaIndexClient(algoliaIndex: Index[IndexableRo
   }
 }
 
-class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexClient, initialBatchSize: Int = DEFAULT_BATCH_SIZE) extends Actor {
+class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexClient, initialBatchSize: Int, indexingStatusStore: IndexingStatusStore) extends Actor {
+  def this(indexName: IndexName, algoliaIndexClient: AlgoliaIndexClient, initialBatchSize: Int) =
+    this(indexName, algoliaIndexClient, initialBatchSize, IndexingStatusStore.noop)
+
+  def this(indexName: IndexName, algoliaIndexClient: AlgoliaIndexClient) =
+    this(indexName, algoliaIndexClient, DEFAULT_BATCH_SIZE, IndexingStatusStore.noop)
+
 
   import context.dispatcher
 
@@ -311,6 +319,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
     case AlgoliaOperationResponse(operation, batchLogMsgGroupId, taskIds, Some(t)) =>
       logFailure(operation, batchLogMsgGroupId, t)
+      markOperationDegraded(operation, t)
       operation match {
         case DeleteCollection(collectionPath) =>
           context.parent ! AlgoliaRemoveForCollectionFailed(indexName, collectionPath, t)
@@ -321,6 +330,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
     case AlgoliaOperationResponse(operation, batchLogMsgGroupId, taskIds, None) =>
       logSuccess(operation, batchLogMsgGroupId, taskIds)
+      markOperationCurrent(operation)
       operation match {
         case DeleteCollection(collectionPath) =>
           context.parent ! AlgoliaRemoveForCollectionSucceeded(indexName, collectionPath)
@@ -439,6 +449,57 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
     case DeleteDocument(documentId, userSpecifiedDocumentId) => s"delete documentId=$documentId userSpecifiedDocumentId=$userSpecifiedDocumentId"
     case DeleteCollection(collectionPath) => s"delete collectionPath=$collectionPath"
     case DeleteIndex => "delete index"
+  }
+
+  private def operationType(operation: PendingOperation): String = operation match {
+    case BatchChanges(_) => IndexingStatusStore.BATCH_WRITE
+    case DeleteDocument(_, _) => IndexingStatusStore.DOCUMENT_DELETE
+    case DeleteCollection(_) => IndexingStatusStore.COLLECTION_DELETE
+    case DeleteIndex => IndexingStatusStore.INDEX_DROP
+  }
+
+  private def batchCollections(changes: Changes): Seq[CollectionPath] = {
+    def collectionFromLocalRootObject(localRootObject: LocalIndexableRootObject): Option[CollectionPath] =
+      Try(mapper.readTree(localRootObject.path.toFile))
+        .toOption
+        .flatMap(tree => Option(tree.get(COLLECTION_PATH_FIELD_NAME)).map(_.asText()))
+
+    (changes.additions ++ changes.updates)
+      .flatMap(collectionFromLocalRootObject)
+      .distinct
+  }
+
+  private def markOperationCurrent(operation: PendingOperation): Unit = operation match {
+    case BatchChanges(changes) =>
+      val collections = batchCollections(changes)
+      val objectCount = changes.additions.size + changes.updates.size + changes.deletions.size
+      if (collections.isEmpty) {
+        indexingStatusStore.markCurrent(indexName, None, operationType(operation), Some(objectCount))
+      } else {
+        collections.foreach(collection => indexingStatusStore.markCurrent(indexName, Some(collection), operationType(operation), Some(objectCount)))
+      }
+    case DeleteDocument(_, _) =>
+      indexingStatusStore.markCurrent(indexName, None, operationType(operation))
+    case DeleteCollection(collectionPath) =>
+      indexingStatusStore.markCurrent(indexName, Some(collectionPath), operationType(operation))
+    case DeleteIndex =>
+      indexingStatusStore.markCurrent(indexName, None, operationType(operation))
+  }
+
+  private def markOperationDegraded(operation: PendingOperation, error: Throwable): Unit = operation match {
+    case BatchChanges(changes) =>
+      val collections = batchCollections(changes)
+      if (collections.isEmpty) {
+        indexingStatusStore.markDegraded(indexName, None, operationType(operation), error)
+      } else {
+        collections.foreach(collection => indexingStatusStore.markDegraded(indexName, Some(collection), operationType(operation), error))
+      }
+    case DeleteDocument(_, _) =>
+      indexingStatusStore.markDegraded(indexName, None, operationType(operation), error)
+    case DeleteCollection(collectionPath) =>
+      indexingStatusStore.markDegraded(indexName, Some(collectionPath), operationType(operation), error)
+    case DeleteIndex =>
+      indexingStatusStore.markDegraded(indexName, None, operationType(operation), error)
   }
 
   private def logStart(operation: PendingOperation, batchLogMsgGroupId: BatchLogMsgGroupId): Unit = operation match {

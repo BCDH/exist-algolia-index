@@ -7,10 +7,11 @@ import akka.actor.{Actor, ActorRef, Props}
 import com.algolia.search.exceptions.AlgoliaHttpException
 import com.algolia.search.inputs.BatchOperation
 import com.algolia.search.objects.Query
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import org.humanistika.exist.index.algolia.backend.AlgoliaIndexActor.{DroppedIndex, DropIndex}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{AlgoliaRemoveForCollectionSucceeded, RemoveForCollection, RemoveForDocument}
-import org.humanistika.exist.index.algolia.backend.{AlgoliaIndexActor, AlgoliaIndexClient}
+import org.humanistika.exist.index.algolia.backend.{AlgoliaIndexActor, AlgoliaIndexClient, IndexingStatusStore}
 import org.humanistika.exist.index.algolia.backend.AlgoliaIndexManagerActor.{exactCollectionPathFacetFilter, exactCollectionPathFilter, exactDocumentIdFacetFilter, exactDocumentIdNumericFilter}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.Changes
 import org.specs2.mutable.Specification
@@ -86,6 +87,26 @@ class AlgoliaIndexManagerActorSpec extends Specification {
         success
       } finally {
         tempFiles.foreach(Files.deleteIfExists)
+      }
+    }
+
+    "write degraded status after terminal Algolia failures" in new AkkaTestkitSpecs2Support {
+      val dataDir = Files.createTempDirectory("algolia-index-status")
+      val statusStore = IndexingStatusStore(dataDir)
+      val actor = system.actorOf(Props(classOf[AlgoliaIndexActor], "ras", new FailingAlgoliaClient, 2, statusStore))
+      val tempFile = Files.createTempFile("algolia-index-status-object", ".json")
+      Files.write(tempFile, s"""{"$COLLECTION_PATH_FIELD_NAME":"/db/apps/raskovnik-data/data/VSK.SR","objectID":"VSK.SR.1"}""".getBytes("UTF-8"))
+
+      try {
+        actor ! Changes(42, Seq(LocalIndexableRootObject(tempFile)), Seq.empty, Seq.empty)
+        val statusFile = dataDir.resolve("algolia-index").resolve("status.json")
+        awaitCond(Files.isRegularFile(statusFile))
+        val records = new ObjectMapper().readTree(statusFile.toFile).get("records")
+        records.get(0).get("index").asText() mustEqual "ras"
+        records.get(0).get("collection").asText() mustEqual "/db/apps/raskovnik-data/data/VSK.SR"
+        records.get(0).get("state").asText() mustEqual IndexingStatusStore.DEGRADED
+      } finally {
+        Files.deleteIfExists(tempFile)
       }
     }
 
@@ -183,6 +204,17 @@ class AlgoliaIndexManagerActorSpec extends Specification {
       allowDeleteToFinish.await()
       11L
     }
+  }
+
+  private class FailingAlgoliaClient extends AlgoliaIndexClient {
+    override def batch(operations: Seq[BatchOperation]): Long =
+      throw new AlgoliaHttpException(403, "quota")
+
+    override def deleteBy(query: Query): Long =
+      throw new AlgoliaHttpException(403, "quota")
+
+    override def deleteIndex(): Long =
+      throw new AlgoliaHttpException(403, "quota")
   }
 
   private def actorHarness(indexName: String, client: AlgoliaIndexClient, batchSize: Int)(implicit kit: AkkaTestkitSpecs2Support): ActorRef = {

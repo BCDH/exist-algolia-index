@@ -34,34 +34,17 @@ Current failures produce explicit log markers such as:
 ALGOLIA_INDEXING_STATUS status=degraded ...
 ```
 
-That is useful for operators watching logs, but deploy tooling still has no structured status source it can query after a backend deployment.
+That is useful for operators watching logs. The plugin now also writes structured deployment status to `algolia-index/status.json` under the eXist data directory, and Raskovnik deploy tooling can fail verification when that status is degraded or stale.
 
-Required changes:
+Remaining follow-up:
 
-- Track latest indexing status per index and collection.
-- Record terminal failures from:
-  - batch writes
-  - document deletes
-  - collection deletes
-  - index drops
-- Expose status through a lightweight eXist endpoint, management query, or other deployment-checkable mechanism.
-- Keep the status degraded until a successful targeted reindex or follow-up indexing operation clears it.
-- Make deployment summaries distinguish:
-  - deployment failed
-  - deployed with search indexing current
-  - deployed with search indexing degraded
-- Include enough status detail for operators:
-  - index name
-  - collection path
-  - operation type
-  - failure class/message
-  - timestamp
-  - retryable vs terminal, if known
+- Consider adding an eXist endpoint wrapper around the status file if operators need to inspect status without container/filesystem access.
+- Add richer expected-count reporting if deployment tooling needs to compare exact Algolia object counts per dictionary.
 
 Tests:
 
 - Actor-test that Algolia failures update status.
-- Smoke/integration test that a simulated Algolia failure is visible to deployment verification.
+- Local-store actor test that missing backfill marks collection deletion as `stale_local_store`.
 
 ### 2. Add Raskovnik deployment-scenario coverage
 

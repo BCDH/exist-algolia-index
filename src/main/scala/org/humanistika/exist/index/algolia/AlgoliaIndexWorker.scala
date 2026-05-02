@@ -31,7 +31,7 @@ import org.w3c.dom.{Element, Node, NodeList}
 import AlgoliaIndexWorker._
 import akka.actor.{ActorRef, ActorSystem}
 import org.apache.logging.log4j.{LogManager, Logger}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.RemoveForCollection
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{FlushPendingCollectionRemovals, RemoveForCollection}
 
 import scala.collection.JavaConverters._
 
@@ -47,6 +47,7 @@ object AlgoliaIndexWorker {
 
 class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSystem, incrementalIndexingManagerActor: ActorRef) extends IndexWorker {
   private var indexConfig: Option[Algolia] = None
+  private var pendingCollectionRemovalFlush = false
   private val currentContext = Context(None, None)
   private val listener = new AlgoliaStreamListener(this, broker, incrementalIndexingManagerActor)
 
@@ -103,7 +104,10 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
   }
 
   override def flush() {
-    //TODO(AR) implement?
+    if (pendingCollectionRemovalFlush) {
+      incrementalIndexingManagerActor ! FlushPendingCollectionRemovals
+      pendingCollectionRemovalFlush = false
+    }
   }
 
   override def checkIndex(broker: DBBroker) = false
@@ -134,6 +138,7 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
             for (indexName <- indexNames) {
               incrementalIndexingManagerActor ! RemoveForCollection(indexName, collection.getURI.getCollectionPath)
             }
+            pendingCollectionRemovalFlush = indexNames.nonEmpty || pendingCollectionRemovalFlush
         }
       }
   }

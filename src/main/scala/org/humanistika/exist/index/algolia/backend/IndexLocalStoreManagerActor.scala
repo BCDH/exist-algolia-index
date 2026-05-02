@@ -22,7 +22,6 @@ import java.nio.file.{Files, Path}
 import java.util.Arrays
 import java.util.stream.Collectors
 import akka.actor.{Actor, ActorRef, Props}
-import akka.pattern.gracefulStop
 
 import scala.concurrent.duration._
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -34,7 +33,6 @@ import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{CO
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreActor.FILE_SUFFIX
 
 import scala.collection.JavaConverters._
-import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try, Using}
 import cats.syntax.either._
 import grizzled.slf4j.Logger
@@ -62,7 +60,9 @@ object IndexLocalStoreManagerActor {
   *                 |
   *                 | - timestamp
   */
-class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
+class IndexLocalStoreManagerActor(dataDir: Path, indexingStatusStore: IndexingStatusStore) extends Actor {
+  def this(dataDir: Path) = this(dataDir, IndexingStatusStore.noop)
+
   private val indexesDir = dataDir.resolve("algolia-index").resolve("indexes")
   private var perIndexLocalStoreActors: Map[IndexName, ActorRef] = Map.empty
 
@@ -100,6 +100,11 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
     case removedCollection: RemovedCollection =>
       context.parent ! removedCollection
 
+    case FlushPendingCollectionRemovals =>
+      for((_, indexActor) <- perIndexLocalStoreActors) {
+        indexActor ! FlushPendingCollectionRemovals
+      }
+
     case DropIndexes =>
       for((indexName, indexActor) <- perIndexLocalStoreActors) {
         context.stop(indexActor)
@@ -111,7 +116,7 @@ class IndexLocalStoreManagerActor(dataDir: Path) extends Actor {
   private def getOrCreatePerIndexActor(indexName: String) : ActorRef = perIndexLocalStoreActors.getOrElse(indexName, createPerIndexLocalStoreActor(indexName))
 
   private def createPerIndexLocalStoreActor(indexName: String): ActorRef = {
-    val perIndexActor = context.actorOf(Props(classOf[IndexLocalStoreActor], indexesDir, indexName), indexName)
+    val perIndexActor = context.actorOf(Props(classOf[IndexLocalStoreActor], indexesDir, indexName, indexingStatusStore), indexName)
     perIndexLocalStoreActors = perIndexLocalStoreActors + (indexName -> perIndexActor)
     perIndexActor
   }
@@ -121,10 +126,13 @@ object IndexLocalStoreActor {
   val FILE_SUFFIX = "json"
 }
 
-class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
+class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusStore: IndexingStatusStore) extends Actor {
+  def this(indexesDir: Path, indexName: String) = this(indexesDir, indexName, IndexingStatusStore.noop)
+
   private val localIndexStoreDir = indexesDir.resolve(indexName)
   private var processing: Map[DocumentId, Timestamp] = Map.empty
   private var perDocumentActors: Map[DocumentId, ActorRef] = Map.empty
+  private var pendingCollectionRemovals: Map[CollectionPath, Set[String]] = Map.empty
 
   override def preStart() {
     if(!Files.exists(localIndexStoreDir)) {
@@ -142,6 +150,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
     case Add(_, iro @ IndexableRootObject(_, _, documentId, _, _, _, _, _)) =>
       val perDocumentActor = getOrCreatePerDocumentActor(documentId)
       val timestamp = processing(documentId)
+      noteCollectionReplacementDocument(iro)
       perDocumentActor ! Write(timestamp, iro)
 
     case FinishDocument(_, userSpecifiedDocumentId, _, documentId) =>
@@ -172,53 +181,14 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
       this.perDocumentActors = perDocumentActors - documentId  //perDocumentActor is no longer required
 
     case RemoveForCollection(_, collectionPath) =>
-      import context.dispatcher
-      //stop the perDocumentActors, we want exclusive access
-      val stopped: Iterable[Future[(DocumentId, Boolean)]] =
-        for((documentId, perDocumentActor) <- perDocumentActors)
-          yield gracefulStop(perDocumentActor, 2.minutes).map((documentId, _))
-
-      Try(Await.result(Future.sequence(stopped), 5.minutes)) match {
-        case Success(stoppedPerDocumentActors) if !stoppedPerDocumentActors.exists(!_._2) =>
-          // all perDocuemntActors were gracefully stopped
-          this.perDocumentActors = Map.empty
-
-          // find the latest timestamp dir for each document id
-          val latestTimestampDirs: Seq[Path] = Using(Files.list(localIndexStoreDir)) { indexDirStream =>
-              indexDirStream
-                .filter(Files.isDirectory(_))
-                .collect(Collectors.toList())
-                .asScala.toSeq
-                .map(getLatestTimestampDir(_, None))
-          }.get.flatten
-
-          //delete any rootObjects from the latest timestamps which match the collection path tree
-          val rootObjectsInCollectionTree = latestTimestampDirs.map(rootObjectsByCollectionTree(_, collectionPath)).flatten
-          for(rootObjectInCollectionTree <- rootObjectsInCollectionTree) {
-            FileUtils.deleteQuietly(rootObjectInCollectionTree)
-          }
-
-          // cleanup any empty timestamp dirs
-          for(latestTimestampDir <- latestTimestampDirs if isEmpty(latestTimestampDir)) {
-            FileUtils.deleteQuietly(latestTimestampDir)
-          }
-
-          // cleanup any empty document dirs
-          for(documentDir <- latestTimestampDirs.map(_.getParent) if isEmpty(documentDir)) {
-            FileUtils.deleteQuietly(documentDir)
-          }
-
-          context.parent ! RemovedCollection(indexName, collectionPath)
-
-        case Success(stoppedPerDocumentActors) if stoppedPerDocumentActors.exists(!_._2) =>
-          // not all perDocumentActors were gracefully stopped
-          this.perDocumentActors = Map.empty
-          val failedDocumentIds = stoppedPerDocumentActors.filterNot(_._2).map(_._1)
-          throw new IllegalStateException(s"Could not stop document actors for ${failedDocumentIds}") //TODO(AR) better error messages
-
-        case Failure(t) =>
-          throw t //TODO(AR) better error messages
+      if (!hasLocalObjectsForCollection(collectionPath)) {
+        indexingStatusStore.markStaleLocalStore(indexName, collectionPath, IndexingStatusStore.COLLECTION_DELETE)
       }
+      pendingCollectionRemovals = pendingCollectionRemovals + (collectionPath -> pendingCollectionRemovals.getOrElse(collectionPath, Set.empty))
+      context.parent ! RemovedCollection(indexName, collectionPath)
+
+    case FlushPendingCollectionRemovals =>
+      flushPendingCollectionRemovals()
   }
 
   private def isEmpty(dir: Path) : Boolean = {
@@ -247,6 +217,77 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String) extends Actor {
         .collect(Collectors.toList())
         .asScala.toSeq
     }.get
+  }
+
+  private def readLatestTimestampDirs(): Seq[Path] =
+    if (Files.isDirectory(localIndexStoreDir)) {
+      Using(Files.list(localIndexStoreDir)) { indexDirStream =>
+        indexDirStream
+          .filter(Files.isDirectory(_))
+          .collect(Collectors.toList())
+          .asScala.toSeq
+          .flatMap(getLatestTimestampDir(_, None))
+      }.get
+    } else {
+      Seq.empty
+    }
+
+  private def hasLocalObjectsForCollection(collectionPath: CollectionPath): Boolean =
+    readLatestTimestampDirs().exists(timestampDir => rootObjectsByCollectionTree(timestampDir, collectionPath).nonEmpty)
+
+  private def noteCollectionReplacementDocument(indexableRootObject: IndexableRootObject): Unit = {
+    val touchedDocumentDir = filenameUsableDocumentId(indexableRootObject.userSpecifiedDocumentId, indexableRootObject.documentId)
+    pendingCollectionRemovals = pendingCollectionRemovals.map {
+      case (collectionPath, touchedDocuments) if IndexLocalStoreManagerActor.collectionPathMatchesTree(collectionPath, indexableRootObject.collectionPath) =>
+        collectionPath -> (touchedDocuments + touchedDocumentDir)
+      case other =>
+        other
+    }
+  }
+
+  private def filenameUsableDocumentId(userSpecifiedDocumentId: Option[String], documentId: Int): String =
+    userSpecifiedDocumentId.map(base32Encode).getOrElse(documentId.toString)
+
+  private def base32Encode(plain: String): String = {
+    val base32 = new Base32()
+    base32.encodeAsString(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+  }
+
+  private def flushPendingCollectionRemovals(): Unit = {
+    import context.dispatcher
+
+    if (pendingCollectionRemovals.isEmpty) {
+      ()
+    } else if (perDocumentActors.nonEmpty) {
+      context.system.scheduler.scheduleOnce(1.second, self, FlushPendingCollectionRemovals)
+    } else {
+      val latestTimestampDirs: Seq[Path] = readLatestTimestampDirs()
+
+      for ((collectionPath, touchedDocumentDirs) <- pendingCollectionRemovals) {
+        val untouchedTimestampDirs =
+          latestTimestampDirs.filterNot(path => touchedDocumentDirs.contains(path.getParent.getFileName.toString))
+        val rootObjectsInRemovedCollection = untouchedTimestampDirs.flatMap(rootObjectsByCollectionTree(_, collectionPath))
+        val deletions = rootObjectsInRemovedCollection.flatMap(path => readObjectId(path, new ObjectMapper())).distinct
+
+        if (deletions.nonEmpty) {
+          context.parent ! IndexChanges(indexName, Changes(0, Seq.empty, Seq.empty, deletions))
+        }
+
+        for(rootObjectInRemovedCollection <- rootObjectsInRemovedCollection) {
+          FileUtils.deleteQuietly(rootObjectInRemovedCollection)
+        }
+
+        for(latestTimestampDir <- untouchedTimestampDirs if isEmpty(latestTimestampDir)) {
+          FileUtils.deleteQuietly(latestTimestampDir)
+        }
+
+        for(documentDir <- untouchedTimestampDirs.map(_.getParent) if isEmpty(documentDir)) {
+          FileUtils.deleteQuietly(documentDir)
+        }
+      }
+
+      pendingCollectionRemovals = Map.empty
+    }
   }
 
   private def getOrCreatePerDocumentActor(documentId: DocumentId) : ActorRef = perDocumentActors.getOrElse(documentId, createPerDocumentActor(documentId))
