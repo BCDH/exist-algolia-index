@@ -403,6 +403,61 @@ wait_for_algolia_index_deletion() {
   done
 }
 
+verify_indexing_status_file() {
+  local status_file=$1
+  local label=${2:-indexing status}
+
+  require_cmd python3
+
+  if [[ ! -f "${status_file}" ]]; then
+    echo "${label}: no status file found at ${status_file}; treating as OK."
+    return 0
+  fi
+
+  STATUS_FILE="${status_file}" STATUS_LABEL="${label}" python3 <<'PY'
+import json
+import os
+import sys
+
+status_file = os.environ["STATUS_FILE"]
+label = os.environ["STATUS_LABEL"]
+blocking_states = {"degraded", "stale_local_store"}
+
+try:
+    with open(status_file, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception as exc:
+    print(f"{label}: could not parse {status_file}: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+records = payload.get("records") or []
+blocking = [
+    record for record in records
+    if str(record.get("state", "")).strip() in blocking_states
+]
+
+if not blocking:
+    print(f"{label}: OK ({len(records)} record(s) checked).")
+    sys.exit(0)
+
+print(f"{label}: blocking indexing status in {status_file}", file=sys.stderr)
+for record in blocking:
+    parts = [
+        f"index={record.get('index', '')}",
+        f"collection={record.get('collection', '*')}",
+        f"operation={record.get('operation', '')}",
+        f"state={record.get('state', '')}",
+        f"timestamp={record.get('timestamp', '')}",
+    ]
+    failure_message = record.get("failureMessage")
+    if failure_message:
+        parts.append(f"failureMessage={failure_message}")
+    print("  " + " ".join(parts), file=sys.stderr)
+
+sys.exit(1)
+PY
+}
+
 find_new_local_store_file() {
   local data_dir=$1
   local marker_file=$2

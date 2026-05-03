@@ -387,6 +387,12 @@ run_smoke_test() {
   wait_for_algolia_index_deletion "${SMOKE_INDEX_NAME}"
 }
 
+verify_local_indexing_status() {
+  local data_dir
+  data_dir=$(resolve_local_data_dir)
+  verify_indexing_status_file "${data_dir}/algolia-index/status.json" "Local Algolia indexing status"
+}
+
 verify_install() {
   local conf_xml startup_xml plugin_lib_dir installed_jar restart_log=${1:-}
 
@@ -414,6 +420,7 @@ verify_install() {
 
   verify_restart_log "${restart_log}"
   run_smoke_test
+  verify_local_indexing_status
 }
 
 reindex_collection() {
@@ -464,6 +471,7 @@ reindex_collection() {
   fi
 
   echo "Reindex completed for ${collection_path}"
+  verify_local_indexing_status
 }
 
 install_and_verify() {

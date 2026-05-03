@@ -121,6 +121,18 @@ In general:
 - reindex a narrower subcollection if your deployment replaced only part of the XML corpus and that subcollection has the relevant Algolia collection config
 - avoid reindexing broad parent collections unless they are the intended scope of the Algolia configuration
 
+### Indexing Status
+
+The plugin writes deployment-readable indexing status to `algolia-index/status.json` under eXist's configured data directory. The status records are keyed by Algolia index and collection path where a collection is known.
+
+Status states:
+
+- `current`: the latest tracked operation for that index or collection completed successfully
+- `degraded`: Algolia rejected or failed a terminal operation such as a batch write, document delete, collection delete, or index drop
+- `stale_local_store`: the plugin could not derive collection-delete object IDs from the local Algolia store, usually because the collection was removed before a successful backfill created local state
+
+The local and staging helper scripts fail verification when `status.json` contains `degraded` or `stale_local_store` records. Resolve those states before treating a deployment as successful. In practice, check the failure message in `status.json` and the Algolia/eXist logs, then retry the targeted reindex or run a wider backfill if the local store is missing the needed collection state.
+
 ### Limiting Object Access
 
 You can limit data access by setting the `visibleBy` attribute in `collection.xconf` and mapping it to the corresponding path in your XML data, preferably in the document header.

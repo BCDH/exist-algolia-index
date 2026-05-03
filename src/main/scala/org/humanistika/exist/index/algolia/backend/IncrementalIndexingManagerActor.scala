@@ -38,6 +38,9 @@ object IncrementalIndexingManagerActor {
   case class RemovedCollection(indexName: IndexName, collectionPath: String)
   case class AlgoliaRemoveForCollectionSucceeded(indexName: IndexName, collectionPath: String)
   case class AlgoliaRemoveForCollectionFailed(indexName: IndexName, collectionPath: String, error: Throwable)
+  case class AlgoliaCollectionDeletesSucceeded(indexName: IndexName, collectionPath: String)
+  case class AlgoliaCollectionDeletesFailed(indexName: IndexName, collectionPath: String, error: Throwable)
+  case class CollectionDeletesApplied(indexName: IndexName, collectionPath: String)
   case class ConfigureIndex(indexName: IndexName, batchSize: Option[Int])
   case object FlushPendingCollectionRemovals
   case object DropIndexes
@@ -72,6 +75,9 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
 
 
     /* messages from IndexLocalStoreManagerActor */
+    case indexChanges @ IndexChanges(indexName, changes) if changes.collectionDeletionPath.isDefined =>
+      algoliaIndexManagerActor ! indexChanges
+
     case indexChanges @ IndexChanges(indexName, _) =>
       forwardOrQueue(indexName, indexChanges, algoliaIndexManagerActor)
 
@@ -90,12 +96,24 @@ class IncrementalIndexingManagerActor(dataDir: Path) extends Actor {
       }
 
     case removeForCollection @ RemoveForCollection(indexName, collectionPath) =>
-      indexLocalStoreManagerActor ! removeForCollection
+      if (blockedCollectionsByIndex.contains(indexName)) {
+        queuedByIndex = queuedByIndex + (indexName -> (queuedByIndex.getOrElse(indexName, Vector.empty) :+ removeForCollection))
+      } else {
+        blockedCollectionsByIndex = blockedCollectionsByIndex + (indexName -> collectionPath)
+        indexLocalStoreManagerActor ! removeForCollection
+      }
 
     case AlgoliaRemoveForCollectionSucceeded(indexName, collectionPath) =>
       indexLocalStoreManagerActor ! RemoveForCollection(indexName, collectionPath)
 
     case AlgoliaRemoveForCollectionFailed(indexName, collectionPath, _) =>
+      blockedCollectionsByIndex = blockedCollectionsByIndex - indexName
+      replayQueued(indexName)
+
+    case AlgoliaCollectionDeletesSucceeded(indexName, collectionPath) =>
+      indexLocalStoreManagerActor ! CollectionDeletesApplied(indexName, collectionPath)
+
+    case AlgoliaCollectionDeletesFailed(indexName, collectionPath, _) =>
       blockedCollectionsByIndex = blockedCollectionsByIndex - indexName
       replayQueued(indexName)
 

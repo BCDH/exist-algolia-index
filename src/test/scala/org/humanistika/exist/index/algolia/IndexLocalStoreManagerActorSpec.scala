@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.exist.util.FileUtils
 import org.humanistika.exist.index.algolia.backend.{IndexLocalStoreActor, IndexingStatusStore}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreManagerActor.collectionPathMatchesTree
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{FlushPendingCollectionRemovals, IndexChanges, RemoveForCollection, RemovedCollection}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{CollectionDeletesApplied, FlushPendingCollectionRemovals, IndexChanges, RemoveForCollection, RemovedCollection}
 import org.specs2.mutable.Specification
 
 import scala.concurrent.duration._
@@ -30,7 +30,7 @@ class IndexLocalStoreManagerActorSpec extends Specification {
   }
 
   "IndexLocalStoreActor" should {
-    "defer collection-tree removals until flush and emit object-level deletions" in new AkkaTestkitSpecs2Support {
+    "emit object-level collection deletions on flush and preserve local evidence until success acknowledgement" in new AkkaTestkitSpecs2Support {
       val indexesDir = Files.createTempDirectory("algolia-index-local-store-index")
       try {
         val indexName = "ras"
@@ -56,15 +56,22 @@ class IndexLocalStoreManagerActorSpec extends Specification {
         Files.exists(targetDocFile) must beTrue
         Files.exists(childDocFile) must beTrue
         Files.exists(siblingDocFile) must beTrue
-        expectMsg(RemovedCollection(indexName, targetCollection))
+        expectNoMessage(200.millis)
 
         actor ! FlushPendingCollectionRemovals
-        awaitCond(!Files.exists(targetDocFile), max = 1.second)
-        awaitCond(!Files.exists(childDocFile), max = 1.second)
-        Files.exists(siblingDocFile) must beTrue
         val changes = expectMsgType[IndexChanges]
         changes.indexName mustEqual indexName
         changes.changes.deletions must contain(exactly("target.json", "child.json"))
+        changes.changes.collectionDeletionPath must beSome(targetCollection)
+        Files.exists(targetDocFile) must beTrue
+        Files.exists(childDocFile) must beTrue
+        Files.exists(siblingDocFile) must beTrue
+
+        actor ! CollectionDeletesApplied(indexName, targetCollection)
+        expectMsg(RemovedCollection(indexName, targetCollection))
+        awaitCond(!Files.exists(targetDocFile), max = 1.second)
+        awaitCond(!Files.exists(childDocFile), max = 1.second)
+        Files.exists(siblingDocFile) must beTrue
       } finally {
         FileUtils.deleteQuietly(indexesDir)
       }

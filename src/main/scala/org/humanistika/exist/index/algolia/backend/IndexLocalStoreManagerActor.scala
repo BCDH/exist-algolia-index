@@ -100,6 +100,9 @@ class IndexLocalStoreManagerActor(dataDir: Path, indexingStatusStore: IndexingSt
     case removedCollection: RemovedCollection =>
       context.parent ! removedCollection
 
+    case collectionDeletesApplied: CollectionDeletesApplied =>
+      perIndexLocalStoreActors.get(collectionDeletesApplied.indexName).foreach(_ ! collectionDeletesApplied)
+
     case FlushPendingCollectionRemovals =>
       for((_, indexActor) <- perIndexLocalStoreActors) {
         indexActor ! FlushPendingCollectionRemovals
@@ -158,7 +161,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
       val timestamp = processing(documentId)
       perDocumentActor ! FindChanges(timestamp, userSpecifiedDocumentId, documentId)
 
-    case changes @ Changes(documentId, _, _, _) =>
+    case changes @ Changes(documentId, _, _, _, _) =>
       // cleanup per document actor (no longer required)
       val perDocumentActor = perDocumentActors(documentId)
       this.processing = processing - documentId
@@ -183,12 +186,15 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
     case RemoveForCollection(_, collectionPath) =>
       if (!hasLocalObjectsForCollection(collectionPath)) {
         indexingStatusStore.markStaleLocalStore(indexName, collectionPath, IndexingStatusStore.COLLECTION_DELETE)
+        context.parent ! RemovedCollection(indexName, collectionPath)
       }
       pendingCollectionRemovals = pendingCollectionRemovals + (collectionPath -> pendingCollectionRemovals.getOrElse(collectionPath, Set.empty))
-      context.parent ! RemovedCollection(indexName, collectionPath)
 
     case FlushPendingCollectionRemovals =>
       flushPendingCollectionRemovals()
+
+    case CollectionDeletesApplied(_, collectionPath) =>
+      applyCollectionDeletes(collectionPath)
   }
 
   private def isEmpty(dir: Path) : Boolean = {
@@ -270,24 +276,36 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
         val deletions = rootObjectsInRemovedCollection.flatMap(path => readObjectId(path, new ObjectMapper())).distinct
 
         if (deletions.nonEmpty) {
-          context.parent ! IndexChanges(indexName, Changes(0, Seq.empty, Seq.empty, deletions))
-        }
-
-        for(rootObjectInRemovedCollection <- rootObjectsInRemovedCollection) {
-          FileUtils.deleteQuietly(rootObjectInRemovedCollection)
-        }
-
-        for(latestTimestampDir <- untouchedTimestampDirs if isEmpty(latestTimestampDir)) {
-          FileUtils.deleteQuietly(latestTimestampDir)
-        }
-
-        for(documentDir <- untouchedTimestampDirs.map(_.getParent) if isEmpty(documentDir)) {
-          FileUtils.deleteQuietly(documentDir)
+          context.parent ! IndexChanges(indexName, Changes(0, Seq.empty, Seq.empty, deletions, Some(collectionPath)))
+        } else {
+          pendingCollectionRemovals = pendingCollectionRemovals - collectionPath
+          context.parent ! RemovedCollection(indexName, collectionPath)
         }
       }
-
-      pendingCollectionRemovals = Map.empty
     }
+  }
+
+  private def applyCollectionDeletes(collectionPath: CollectionPath): Unit = {
+    val latestTimestampDirs = readLatestTimestampDirs()
+    val touchedDocumentDirs = pendingCollectionRemovals.getOrElse(collectionPath, Set.empty)
+    val untouchedTimestampDirs =
+      latestTimestampDirs.filterNot(path => touchedDocumentDirs.contains(path.getParent.getFileName.toString))
+    val rootObjectsInRemovedCollection = untouchedTimestampDirs.flatMap(rootObjectsByCollectionTree(_, collectionPath))
+
+    for(rootObjectInRemovedCollection <- rootObjectsInRemovedCollection) {
+      FileUtils.deleteQuietly(rootObjectInRemovedCollection)
+    }
+
+    for(latestTimestampDir <- untouchedTimestampDirs if isEmpty(latestTimestampDir)) {
+      FileUtils.deleteQuietly(latestTimestampDir)
+    }
+
+    for(documentDir <- untouchedTimestampDirs.map(_.getParent) if isEmpty(documentDir)) {
+      FileUtils.deleteQuietly(documentDir)
+    }
+
+    pendingCollectionRemovals = pendingCollectionRemovals - collectionPath
+    context.parent ! RemovedCollection(indexName, collectionPath)
   }
 
   private def getOrCreatePerDocumentActor(documentId: DocumentId) : ActorRef = perDocumentActors.getOrElse(documentId, createPerDocumentActor(documentId))
@@ -303,7 +321,7 @@ object IndexLocalStoreDocumentActor {
   val mapper = new ObjectMapper
   case class Write(timestamp: Timestamp, indexableRootObject: IndexableRootObject)
   case class FindChanges(timestamp: Timestamp, userSpecifiedDocumentId: Option[String], documentId: DocumentId)
-  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], updates: Seq[LocalIndexableRootObject], deletions: Seq[objectID])
+  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], updates: Seq[LocalIndexableRootObject], deletions: Seq[objectID], collectionDeletionPath: Option[CollectionPath] = None)
   case class RemoveDocument(documentId: DocumentId, userSpecifiedDocumnentId: Option[String], maybeTimestamp: Option[Timestamp])
   case class RemovedDocument(documentId: DocumentId)
 

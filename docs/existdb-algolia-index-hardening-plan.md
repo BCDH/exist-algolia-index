@@ -34,7 +34,7 @@ Current failures produce explicit log markers such as:
 ALGOLIA_INDEXING_STATUS status=degraded ...
 ```
 
-That is useful for operators watching logs. The plugin now also writes structured deployment status to `algolia-index/status.json` under the eXist data directory, and Raskovnik deploy tooling can fail verification when that status is degraded or stale.
+That is useful for operators watching logs. The plugin now also writes structured deployment status to `algolia-index/status.json` under the eXist data directory, and the local/staging helper scripts fail verification when that status is degraded or stale.
 
 Remaining follow-up:
 

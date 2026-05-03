@@ -183,24 +183,13 @@ resolve_container_dir() {
   shift
 
   if [[ -n "${override_value}" ]]; then
-    if container_path_exists "${override_value}"; then
-      printf '%s' "${override_value}"
-      return 0
-    fi
-    echo "Configured directory does not exist in container ${EXISTDB_CONTAINER_NAME}: ${override_value}" >&2
-    exit 1
+    printf '%s' "${override_value}"
+    return 0
   fi
 
-  local candidate
-  for candidate in "$@"; do
-    if container_path_exists "${candidate}"; then
-      printf '%s' "${candidate}"
-      return 0
-    fi
-  done
+  printf '%s' "$1"
+  return 0
 
-  echo "Could not resolve directory path inside ${EXISTDB_CONTAINER_NAME}. Set an explicit override." >&2
-  exit 1
 }
 
 resolve_remote_conf_xml() {
@@ -494,9 +483,28 @@ run_smoke_test() {
   wait_for_algolia_index_deletion "${SMOKE_INDEX_NAME}"
 }
 
+verify_remote_indexing_status() {
+  local data_dir status_path tmp_dir status_tmp
+
+  data_dir=$(resolve_remote_data_dir)
+  status_path="${data_dir}/algolia-index/status.json"
+
+  if ! container_path_exists "${status_path}"; then
+    echo "[remote] Algolia indexing status: no status file found at ${status_path}; treating as OK."
+    return 0
+  fi
+
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+  status_tmp="${tmp_dir}/status.json"
+  copy_container_file_to_tmp "${status_path}" "${status_tmp}"
+  verify_indexing_status_file "${status_tmp}" "[remote] Algolia indexing status"
+}
+
 verify_install() {
   verify_static_state
   run_smoke_test
+  verify_remote_indexing_status
 }
 
 reindex_collection() {
@@ -547,6 +555,7 @@ reindex_collection() {
   fi
 
   echo "[remote] Reindex completed for ${collection_path}"
+  verify_remote_indexing_status
 }
 
 run_all() {

@@ -97,7 +97,7 @@ lazy val root = Project("exist-algolia-index", file("."))
     },
     Test / publishArtifact := false,
 //    scalacOptions in Test ++= Seq("-Yrangepos")
-    releaseVersionBump := sbtrelease.Version.Bump.Major,
+    releaseVersionBump := sbtrelease.Version.Bump.Bugfix,
     releasePublishArtifactsAction := PgpKeys.publishSigned.value,
 
     resolvers += Resolver.mavenLocal,

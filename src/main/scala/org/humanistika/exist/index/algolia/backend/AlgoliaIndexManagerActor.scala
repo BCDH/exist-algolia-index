@@ -24,7 +24,7 @@ import org.humanistika.exist.index.algolia.{CollectionPath, DocumentId, IndexNam
 import org.humanistika.exist.index.algolia.AlgoliaIndex.{Authentication, DEFAULT_BATCH_SIZE, IndexingSettings}
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import AlgoliaIndexActor._
-import IncrementalIndexingManagerActor.{AlgoliaRemoveForCollectionFailed, AlgoliaRemoveForCollectionSucceeded, ConfigureIndex, DropIndexes, IndexChanges, RemoveForCollection, RemoveForDocument}
+import IncrementalIndexingManagerActor.{AlgoliaCollectionDeletesFailed, AlgoliaCollectionDeletesSucceeded, AlgoliaRemoveForCollectionFailed, AlgoliaRemoveForCollectionSucceeded, ConfigureIndex, DropIndexes, IndexChanges, RemoveForCollection, RemoveForDocument}
 import com.algolia.search.exceptions.{AlgoliaHttpException, AlgoliaHttpRetriesException}
 import com.algolia.search.inputs.BatchOperation
 import com.algolia.search.inputs.batch.{BatchAddObjectOperation, BatchDeleteObjectOperation, BatchUpdateObjectOperation}
@@ -123,6 +123,12 @@ class AlgoliaIndexManagerActor(indexingStatusStore: IndexingStatusStore) extends
       context.parent ! succeeded
 
     case failed: AlgoliaRemoveForCollectionFailed =>
+      context.parent ! failed
+
+    case succeeded: AlgoliaCollectionDeletesSucceeded =>
+      context.parent ! succeeded
+
+    case failed: AlgoliaCollectionDeletesFailed =>
       context.parent ! failed
   }
 
@@ -302,7 +308,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
     case ConfigureBatchSize(newBatchSize) =>
       this.batchSize = math.max(1, newBatchSize)
 
-    case changes @ Changes(_, _, _, _) =>
+    case changes @ Changes(_, _, _, _, _) =>
       if(logger.isTraceEnabled) {
         logChanges(changes)
       }
@@ -321,6 +327,10 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
       logFailure(operation, batchLogMsgGroupId, t)
       markOperationDegraded(operation, t)
       operation match {
+        case BatchChanges(changes) =>
+          changes.collectionDeletionPath.foreach { collectionPath =>
+            context.parent ! AlgoliaCollectionDeletesFailed(indexName, collectionPath, t)
+          }
         case DeleteCollection(collectionPath) =>
           context.parent ! AlgoliaRemoveForCollectionFailed(indexName, collectionPath, t)
         case _ =>
@@ -332,6 +342,10 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
       logSuccess(operation, batchLogMsgGroupId, taskIds)
       markOperationCurrent(operation)
       operation match {
+        case BatchChanges(changes) =>
+          changes.collectionDeletionPath.foreach { collectionPath =>
+            context.parent ! AlgoliaCollectionDeletesSucceeded(indexName, collectionPath)
+          }
         case DeleteCollection(collectionPath) =>
           context.parent ! AlgoliaRemoveForCollectionSucceeded(indexName, collectionPath)
         case DeleteIndex =>
@@ -471,7 +485,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
   private def markOperationCurrent(operation: PendingOperation): Unit = operation match {
     case BatchChanges(changes) =>
-      val collections = batchCollections(changes)
+      val collections = changes.collectionDeletionPath.toSeq ++ batchCollections(changes)
       val objectCount = changes.additions.size + changes.updates.size + changes.deletions.size
       if (collections.isEmpty) {
         indexingStatusStore.markCurrent(indexName, None, operationType(operation), Some(objectCount))
@@ -488,7 +502,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
   private def markOperationDegraded(operation: PendingOperation, error: Throwable): Unit = operation match {
     case BatchChanges(changes) =>
-      val collections = batchCollections(changes)
+      val collections = changes.collectionDeletionPath.toSeq ++ batchCollections(changes)
       if (collections.isEmpty) {
         indexingStatusStore.markDegraded(indexName, None, operationType(operation), error)
       } else {

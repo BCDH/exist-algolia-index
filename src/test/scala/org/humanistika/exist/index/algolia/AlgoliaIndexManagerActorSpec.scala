@@ -10,7 +10,7 @@ import com.algolia.search.objects.Query
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.humanistika.exist.index.algolia.IndexableRootObjectJsonSerializer.{COLLECTION_PATH_FIELD_NAME, DOCUMENT_ID_FIELD_NAME}
 import org.humanistika.exist.index.algolia.backend.AlgoliaIndexActor.{DroppedIndex, DropIndex}
-import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{AlgoliaRemoveForCollectionSucceeded, RemoveForCollection, RemoveForDocument}
+import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{AlgoliaCollectionDeletesFailed, AlgoliaCollectionDeletesSucceeded, AlgoliaRemoveForCollectionSucceeded, RemoveForCollection, RemoveForDocument}
 import org.humanistika.exist.index.algolia.backend.{AlgoliaIndexActor, AlgoliaIndexClient, IndexingStatusStore}
 import org.humanistika.exist.index.algolia.backend.AlgoliaIndexManagerActor.{exactCollectionPathFacetFilter, exactCollectionPathFilter, exactDocumentIdFacetFilter, exactDocumentIdNumericFilter}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.Changes
@@ -107,6 +107,45 @@ class AlgoliaIndexManagerActorSpec extends Specification {
         records.get(0).get("state").asText() mustEqual IndexingStatusStore.DEGRADED
       } finally {
         Files.deleteIfExists(tempFile)
+      }
+    }
+
+    "acknowledge successful object-level collection deletes" in new AkkaTestkitSpecs2Support {
+      val client = new RecordingAlgoliaClient
+      val harness = actorHarness("ras", client, 2)(this)
+      val collectionPath = "/db/apps/raskovnik-data/data/VSK.SR"
+
+      harness ! Changes(0, Seq.empty, Seq.empty, Seq("VSK.SR.1", "VSK.SR.2"), Some(collectionPath))
+
+      expectMsg(AlgoliaCollectionDeletesSucceeded("ras", collectionPath))
+      client.batchSizes mustEqual Vector(2)
+    }
+
+    "report failed object-level collection deletes and keep them retryable by the local store" in new AkkaTestkitSpecs2Support {
+      val dataDir = Files.createTempDirectory("algolia-index-status")
+      val statusStore = IndexingStatusStore(dataDir)
+      val collectionPath = "/db/apps/raskovnik-data/data/VSK.SR"
+      val harness = system.actorOf(Props(new Actor {
+        private val child = context.actorOf(Props(classOf[AlgoliaIndexActor], "ras", new FailingAlgoliaClient, 2, statusStore), "algolia-ras")
+
+        override def receive: Receive = {
+          case msg @ (_: AlgoliaCollectionDeletesFailed) if sender() == child =>
+            testActor ! msg
+          case msg =>
+            child.forward(msg)
+        }
+      }))
+
+      try {
+        harness ! Changes(0, Seq.empty, Seq.empty, Seq("VSK.SR.1"), Some(collectionPath))
+        expectMsgType[AlgoliaCollectionDeletesFailed]
+        val statusFile = dataDir.resolve("algolia-index").resolve("status.json")
+        awaitCond(Files.isRegularFile(statusFile))
+        val record = new ObjectMapper().readTree(statusFile.toFile).get("records").get(0)
+        record.get("collection").asText() mustEqual collectionPath
+        record.get("state").asText() mustEqual IndexingStatusStore.DEGRADED
+      } finally {
+        org.exist.util.FileUtils.deleteQuietly(dataDir)
       }
     }
 
@@ -224,7 +263,7 @@ class AlgoliaIndexManagerActorSpec extends Specification {
       private val child = context.actorOf(Props(classOf[AlgoliaIndexActor], indexName, client, batchSize), s"algolia-$indexName")
 
       override def receive: Receive = {
-        case msg @ (_: AlgoliaRemoveForCollectionSucceeded | _: DroppedIndex) if sender() == child =>
+        case msg @ (_: AlgoliaRemoveForCollectionSucceeded | _: AlgoliaCollectionDeletesSucceeded | _: DroppedIndex) if sender() == child =>
           testActor ! msg
         case msg =>
           child.forward(msg)
