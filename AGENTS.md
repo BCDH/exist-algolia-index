@@ -253,7 +253,7 @@ Do not proceed with release tags, release commits, or GitHub Release publication
 
 There are no repo-local `prepare-release.sh` or `prepare-next-snapshot.sh` scripts. The maintained release flow for this repo is manual Git tagging plus a GitHub Release with the assembly jar asset.
 
-Do not use `sbt release`, `sbt publishSigned`, or Maven repository publishing unless the maintainer explicitly asks for that workflow. Some legacy sbt publishing settings may exist in `build.sbt`/`project/plugins.sbt`; they are not the documented release path for this project.
+Do not use `sbt release`, `sbt publishSigned`, or Maven repository publishing unless the maintainer explicitly asks for that workflow. The build is intentionally configured for assembly-jar distribution through GitHub Releases, not Maven repository publication.
 
 Version source:
 

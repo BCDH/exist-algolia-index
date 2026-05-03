@@ -1,5 +1,3 @@
-import ReleaseTransformations._
-
 val jaxbApiV = "3.0.1"
 
 val jaxbImplV = "3.0.2"
@@ -86,20 +84,7 @@ lazy val root = Project("exist-algolia-index", file("."))
         "org.apache.httpcomponents" % "httpclient" % "4.5.14" % Test
       )
     },
-    publishMavenStyle := true,
-    credentials += Credentials(Path.userHome / ".ivy2" / ".credentials"),
-    publishTo := {
-      val nexus = "https://oss.sonatype.org/"
-      if (isSnapshot.value)
-        Some("snapshots" at nexus + "content/repositories/snapshots/")
-      else
-        Some("releases" at nexus + "service/local/staging/deploy/maven2/")
-    },
-    Test / publishArtifact := false,
 //    scalacOptions in Test ++= Seq("-Yrangepos")
-    releaseVersionBump := sbtrelease.Version.Bump.Bugfix,
-    releasePublishArtifactsAction := PgpKeys.publishSigned.value,
-
     resolvers += Resolver.mavenLocal,
     resolvers += "Evolved Binary eXist-db Release Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db/",
     resolvers += "Evolved Binary eXist-db Snapshot Maven Repo" at "https://repo.evolvedbinary.com/repository/exist-db-snapshots/"
