@@ -31,6 +31,31 @@ Useful script syntax checks:
 bash -n scripts/exist-common.sh scripts/exist-local.sh scripts/exist-stage.sh scripts/exist-stage-remote.sh
 ```
 
+## CI Expectations
+
+GitHub Actions workflow: `.github/workflows/ci.yml`.
+
+CI runs on:
+
+- `ubuntu-latest`, `macos-latest`, `windows-latest`
+- Java `17` and `21`
+
+Each matrix job runs:
+
+```sh
+sbt --batch -v -Dfile.encoding=UTF-8 assembly
+sbt --batch test
+```
+
+For release work, local `sbt test` and `sbt assembly` are necessary but not a substitute for CI. After pushing release-prep changes or release commits, check the GitHub Actions result:
+
+```sh
+gh run list --repo BCDH/exist-algolia-index --limit 5
+gh run watch --repo BCDH/exist-algolia-index
+```
+
+The build uses `javacOptions ++= Seq("--release", "8")`, while CI validates with modern JDKs. Do not remove Java 8 bytecode compatibility without an explicit compatibility decision.
+
 The main plugin install/test helpers are:
 
 - `scripts/exist-local.sh`
@@ -215,7 +240,7 @@ git -C ../../ttasovac/raskovnik-frontend status --short --branch
 
 ## Release Guardrails
 
-Do not proceed with Sonatype publishing, release tags, or release commits until:
+Do not proceed with release tags, release commits, or GitHub Release publication until:
 
 - `git diff --check` passes.
 - `sbt test` passes.
@@ -226,7 +251,9 @@ Do not proceed with Sonatype publishing, release tags, or release commits until:
 
 ## Release Procedure
 
-There are no repo-local `prepare-release.sh` or `prepare-next-snapshot.sh` scripts. Release mechanics are driven by sbt/sbt-release settings in `build.sbt` and the version in `version.sbt`.
+There are no repo-local `prepare-release.sh` or `prepare-next-snapshot.sh` scripts. The maintained release flow for this repo is manual Git tagging plus a GitHub Release with the assembly jar asset.
+
+Do not use `sbt release`, `sbt publishSigned`, or Maven repository publishing unless the maintainer explicitly asks for that workflow. Some legacy sbt publishing settings may exist in `build.sbt`/`project/plugins.sbt`; they are not the documented release path for this project.
 
 Version source:
 
@@ -240,19 +267,9 @@ Example format:
 ThisBuild / version := "1.1.3-SNAPSHOT"
 ```
 
-Publishing configuration:
-
-- Snapshots publish to Sonatype snapshots: `https://oss.sonatype.org/content/repositories/snapshots/`
-- Releases publish to Sonatype staging deploy: `https://oss.sonatype.org/service/local/staging/deploy/maven2/`
-- Credentials are read from `~/.ivy2/.credentials`.
-- Release artifact publishing uses `PgpKeys.publishSigned.value`, so local PGP signing must be configured.
-- Assembly artifacts are attached with classifier `assembly`.
-
 Release bump policy:
 
-- `build.sbt` sets `releaseVersionBump := sbtrelease.Version.Bump.Bugfix`.
-- For a `1.1.3` release, sbt-release should propose the next snapshot as `1.1.4-SNAPSHOT`.
-- Still read release prompts carefully and enter the intended version explicitly if the proposal is not what the maintainer wants.
+- Use patch-version snapshots after a patch release: for a `1.1.3` release, prepare `1.1.4-SNAPSHOT` afterward.
 
 ### Pre-Release Checklist
 
@@ -306,7 +323,7 @@ Release bump policy:
 
 ### Commit Before Release
 
-After fixes and validation pass, commit the plugin repo changes before running the release. Keep the commit focused and do not include unrelated sibling-repo changes.
+After fixes and validation pass, commit the plugin repo changes before preparing the release version. Keep the commit focused and do not include unrelated sibling-repo changes.
 
 ```sh
 git status --short
@@ -316,50 +333,21 @@ git commit -m "Prepare Algolia index release"
 
 Use a more specific commit message when appropriate. If the user asked to commit, do it; otherwise confirm before creating release commits/tags.
 
-### sbt-release Flow
-
-The normal release command is:
-
-```sh
-sbt release
-```
-
-Expected sbt-release behavior:
-
-- Checks for snapshot dependencies.
-- Asks for the release version, usually current snapshot without `-SNAPSHOT`.
-- Edits `version.sbt` to the release version.
-- Runs the configured test process.
-- Commits the release version.
-- Tags the release.
-- Runs signed publish.
-- Asks for the next snapshot version.
-- Edits `version.sbt` to the next snapshot.
-- Commits the next snapshot.
-
-Use the prompts deliberately. For release `1.1.3` from `1.1.3-SNAPSHOT`:
-
-- Release version: `1.1.3`
-- Next version: normally `1.1.4-SNAPSHOT`.
-
-Do not use unattended/default release prompts unless the proposed release and next-snapshot versions are correct.
-
-If publishing should not happen yet, do not run `sbt release`. Instead, make a normal commit and stop before tagging/publishing.
-
-### Manual Version Flow
-
-Use this only if the maintainer explicitly wants manual control instead of sbt-release.
+### Manual Release Flow
 
 1. Change `version.sbt` from `X.Y.Z-SNAPSHOT` to `X.Y.Z`.
+
 2. Run:
 
    ```sh
    git diff --check
+   bash -n scripts/exist-common.sh scripts/exist-local.sh scripts/exist-stage.sh scripts/exist-stage-remote.sh
+   ./scripts/test-indexing-status-verifier.sh
    sbt test
    sbt assembly
    ```
 
-3. Commit the release version:
+3. Commit and tag the release version:
 
    ```sh
    git add version.sbt
@@ -367,15 +355,17 @@ Use this only if the maintainer explicitly wants manual control instead of sbt-r
    git tag -a "vX.Y.Z" -m "Release X.Y.Z"
    ```
 
-4. Publish signed artifacts only when credentials and signing are ready:
+4. Push the release commit and tag deliberately:
 
    ```sh
-   sbt publishSigned
+   git push origin master --follow-tags
    ```
 
-5. Complete Sonatype staging close/release outside this repo if required by the maintainer’s Sonatype workflow.
+   If the branch is not `master`, replace `master` with the current release branch. Do not create the GitHub Release until the `vX.Y.Z` tag exists on `origin`.
 
-6. Change `version.sbt` to the next snapshot, for example `X.Y.(Z+1)-SNAPSHOT`.
+5. Create the GitHub Release and upload `target/scala-2.13/exist-algolia-index-assembly-X.Y.Z.jar` as the release asset.
+
+6. Change `version.sbt` to the next snapshot, for example `X.Y.(Z+1)-SNAPSHOT`, and build it if requested.
 
 7. Commit the next snapshot:
 
@@ -386,19 +376,77 @@ Use this only if the maintainer explicitly wants manual control instead of sbt-r
 
 ### Post-Release Checks
 
-After release/tag/publish:
+After release/tag/GitHub Release publication:
 
 ```sh
 git status --short --branch
 git tag --points-at HEAD
 ```
 
-Confirm whether `HEAD` is the release commit or the next-snapshot commit. With sbt-release, the tag usually points to the release commit, while `HEAD` ends at the next-snapshot commit.
+Confirm whether `HEAD` is the release commit or the next-snapshot commit. In the manual flow above, the tag points to the release commit. After the next-snapshot commit, `HEAD` should no longer be the tagged commit.
 
 Build the next snapshot once if requested:
 
 ```sh
 sbt assembly
 ```
+
+### GitHub Release Publication
+
+The public GitHub Releases page is the distribution surface for this project. Existing releases at `https://github.com/BCDH/exist-algolia-index/releases` have:
+
+- Tag/name format: `vX.Y.Z`
+- Uploaded asset: `exist-algolia-index-assembly-X.Y.Z.jar`
+- Human-written release notes
+
+Before creating the GitHub Release, make sure the release tag exists locally and remotely, and make sure the non-snapshot assembly jar exists:
+
+```sh
+git tag --list "vX.Y.Z"
+git ls-remote --tags origin "vX.Y.Z"
+test -f target/scala-2.13/exist-algolia-index-assembly-X.Y.Z.jar
+```
+
+Prepare release notes in a temporary file. The notes should be concise and operator-facing. Recent release styles:
+
+- `v1.1.2`: short title plus bullet list of operational changes.
+- `v1.1.1`: generated full changelog only.
+- `v1.1.0`: fuller notes with Highlights, Notable changes, Upgrade notes, and Asset.
+
+For a normal release with explicit notes:
+
+```sh
+cat >/tmp/exist-algolia-index-release-X.Y.Z.md <<'EOF'
+Release vX.Y.Z
+
+- Summarize the main runtime changes.
+- Summarize operator/deploy impact.
+- Mention required reindex or status checks if relevant.
+EOF
+
+gh release create "vX.Y.Z" \
+  "target/scala-2.13/exist-algolia-index-assembly-X.Y.Z.jar" \
+  --repo BCDH/exist-algolia-index \
+  --title "vX.Y.Z" \
+  --notes-file /tmp/exist-algolia-index-release-X.Y.Z.md
+```
+
+If the release should be marked as latest, either let GitHub infer it or pass `--latest` when using a `gh` version that supports it. Do not mark a prerelease/snapshot as latest.
+
+Verify the created release:
+
+```sh
+gh release view "vX.Y.Z" \
+  --repo BCDH/exist-algolia-index \
+  --json tagName,name,isLatest,url,assets
+```
+
+Confirm the asset list includes exactly the intended release jar:
+
+```text
+exist-algolia-index-assembly-X.Y.Z.jar
+```
+
+If a release was created with the wrong notes or missing asset, prefer `gh release edit` or `gh release upload` for small corrections. Delete and recreate a release only when the maintainer explicitly approves it.
 
 Do not hotpatch production with staging variables. Production hotpatching goes through `scripts/exist-production-hotpatch.sh` with `EXIST_PRODUCTION_*` variables, and the durable fix is to bake the released plugin into the production image.
