@@ -113,6 +113,12 @@ Known staging caveat from the 1.1.3 pre-release test:
 
 Do not use directory existence checks that copy large container directories. The staging image is minimal and may not have a shell or standard tools. For file checks, `docker cp container:/path tmpfile` is fine. For known directories such as `/exist/lib` or `/exist/data`, prefer configured/default paths over probing by copying.
 
+Remote Raskovnik eXist containers are minimal and do not provide `sh`, `bash`,
+`ls`, or other shell utilities inside the container. For diagnostics, use
+host-level `docker logs`, `docker top`, `docker stats`, `docker inspect`,
+bind-mounted logs under `/opt/raskovnik-*-exist/logs`, or
+`docker exec ... java org.exist.start.Main client ...` for eXist client checks.
+
 Recent successful staging validation for the 1.1.3-SNAPSHOT candidate on 2026-05-03:
 
 - Installed current assembly into `existdb-stage`.
