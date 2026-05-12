@@ -105,8 +105,32 @@ class AlgoliaIndexManagerActorSpec extends Specification {
         records.get(0).get("index").asText() mustEqual "ras"
         records.get(0).get("collection").asText() mustEqual "/db/apps/raskovnik-data/data/VSK.SR"
         records.get(0).get("state").asText() mustEqual IndexingStatusStore.DEGRADED
+        val collectionHealth = new ObjectMapper().readTree(statusFile.toFile).get("collectionHealth")
+        collectionHealth.get(0).get("collection").asText() mustEqual "/db/apps/raskovnik-data/data/VSK.SR"
+        collectionHealth.get(0).get("state").asText() mustEqual IndexingStatusStore.DEGRADED
       } finally {
         Files.deleteIfExists(tempFile)
+      }
+    }
+
+    "write collection health for successful no-op batches with collection context" in new AkkaTestkitSpecs2Support {
+      val dataDir = Files.createTempDirectory("algolia-index-status")
+      val statusStore = IndexingStatusStore(dataDir)
+      val actor = system.actorOf(Props(classOf[AlgoliaIndexActor], "ras", new RecordingAlgoliaClient, 2, statusStore))
+      val collectionPath = "/db/apps/raskovnik-data/data/MV.RGP"
+
+      try {
+        actor ! Changes(42, Seq.empty, Seq.empty, Seq.empty, collectionPath = Some(collectionPath))
+        val statusFile = dataDir.resolve("algolia-index").resolve("status.json")
+        awaitCond(Files.isRegularFile(statusFile))
+        val root = new ObjectMapper().readTree(statusFile.toFile)
+        root.get("healthContractVersion").asInt() mustEqual IndexingStatusStore.COLLECTION_HEALTH_VERSION
+        val collectionHealth = root.get("collectionHealth")
+        collectionHealth.get(0).get("collection").asText() mustEqual collectionPath
+        collectionHealth.get(0).get("state").asText() mustEqual IndexingStatusStore.CURRENT
+        collectionHealth.get(0).get("objectCount").asInt() mustEqual 0
+      } finally {
+        org.exist.util.FileUtils.deleteQuietly(dataDir)
       }
     }
 

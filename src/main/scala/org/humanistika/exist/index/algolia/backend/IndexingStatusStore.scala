@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 import org.humanistika.exist.index.algolia.{CollectionPath, IndexName}
 
 object IndexingStatusStore {
+  val COLLECTION_HEALTH_VERSION = 1
   val CURRENT = "current"
   val DEGRADED = "degraded"
   val STALE_LOCAL_STORE = "stale_local_store"
@@ -47,6 +48,8 @@ class IndexingStatusStore private (maybeStatusFile: Option[Path]) {
   import IndexingStatusStore._
 
   private val records: scala.collection.mutable.LinkedHashMap[String, ObjectNode] =
+    scala.collection.mutable.LinkedHashMap.empty
+  private val collectionHealth: scala.collection.mutable.LinkedHashMap[String, ObjectNode] =
     scala.collection.mutable.LinkedHashMap.empty
 
   maybeStatusFile.foreach(loadExisting)
@@ -86,11 +89,34 @@ class IndexingStatusStore private (maybeStatusFile: Option[Path]) {
     }
 
     records.update(key, node)
+    collectionPath.foreach(path => collectionHealth.update(key, collectionHealthNode(indexName, path, operation, state, timestamp, objectCount, error)))
     write()
   }
 
   private def recordKey(indexName: IndexName, collectionPath: Option[CollectionPath]): String =
     s"$indexName|${collectionPath.getOrElse("*")}"
+
+  private def collectionHealthNode(indexName: IndexName, collectionPath: CollectionPath, operation: String, state: String, timestamp: String, objectCount: Option[Int], error: Option[Throwable]): ObjectNode = {
+    val key = recordKey(indexName, Some(collectionPath))
+    val previousLastSuccess = collectionHealth.get(key).flatMap(node => Option(node.get("lastSuccessfulOperationTimestamp")).map(_.asText()))
+    val node = mapper.createObjectNode()
+    node.put("index", indexName)
+    node.put("collection", collectionPath)
+    node.put("operation", operation)
+    node.put("state", state)
+    node.put("timestamp", timestamp)
+    if (state == CURRENT) {
+      node.put("lastSuccessfulOperationTimestamp", timestamp)
+    } else {
+      previousLastSuccess.foreach(node.put("lastSuccessfulOperationTimestamp", _))
+    }
+    objectCount.foreach(node.put("objectCount", _))
+    error.foreach { t =>
+      node.put("failureClass", t.getClass.getName)
+      node.put("failureMessage", Option(t.getMessage).getOrElse(""))
+    }
+    node
+  }
 
   private def loadExisting(statusFile: Path): Unit = synchronized {
     if (!Files.isRegularFile(statusFile)) {
@@ -104,11 +130,27 @@ class IndexingStatusStore private (maybeStatusFile: Option[Path]) {
       while (elements.hasNext) {
         elements.next() match {
           case node: ObjectNode =>
-          val indexName = Option(node.get("index")).map(_.asText()).getOrElse("")
-          val collectionPath = Option(node.get("collection")).map(_.asText())
-          if (indexName.nonEmpty) {
-            records.update(recordKey(indexName, collectionPath), node)
-          }
+            val indexName = Option(node.get("index")).map(_.asText()).getOrElse("")
+            val collectionPath = Option(node.get("collection")).map(_.asText())
+            if (indexName.nonEmpty) {
+              records.update(recordKey(indexName, collectionPath), node)
+            }
+          case _ =>
+        }
+      }
+    }
+
+    val existingCollectionHealth = Option(root.get("collectionHealth")).collect { case array: ArrayNode => array }
+    existingCollectionHealth.foreach { array =>
+      val elements = array.elements()
+      while (elements.hasNext) {
+        elements.next() match {
+          case node: ObjectNode =>
+            val indexName = Option(node.get("index")).map(_.asText()).getOrElse("")
+            val collectionPath = Option(node.get("collection")).map(_.asText())
+            if (indexName.nonEmpty && collectionPath.exists(_.nonEmpty)) {
+              collectionHealth.update(recordKey(indexName, collectionPath), node)
+            }
           case _ =>
         }
       }
@@ -122,6 +164,9 @@ class IndexingStatusStore private (maybeStatusFile: Option[Path]) {
     root.put("updatedAt", Instant.now().toString)
     val array = root.putArray("records")
     records.values.foreach(array.add)
+    root.put("healthContractVersion", COLLECTION_HEALTH_VERSION)
+    val healthArray = root.putArray("collectionHealth")
+    collectionHealth.values.foreach(healthArray.add)
 
     val tempFile = Files.createTempFile(statusFile.getParent, "status", ".json")
     Files.write(tempFile, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root).getBytes(StandardCharsets.UTF_8))
