@@ -72,6 +72,26 @@ class IndexLocalStoreDocumentActorSpec extends Specification {
         expectMsg(RemovedDocument(42))
       }
     }
+
+    "emit collection context even when the diff is a no-op" in new AkkaTestkitSpecs2Support {
+      withDocumentActorHarness(this) { harness =>
+        val firstTimestamp = 1710000000000L
+        val secondTimestamp = 1710000001000L
+
+        harness ! Write(firstTimestamp, testRootObject(documentId = 42, nodeId = "1.5.2.2.4"))
+        harness ! FindChanges(firstTimestamp, None, 42)
+        expectMsgType[Changes]
+
+        harness ! Write(secondTimestamp, testRootObject(documentId = 42, nodeId = "1.5.2.2.4"))
+        harness ! FindChanges(secondTimestamp, None, 42)
+
+        val changes = expectMsgType[Changes]
+        changes.additions must beEmpty
+        changes.updates must beEmpty
+        changes.deletions must beEmpty
+        changes.collectionPath must beSome("/db/apps/raskovnik-data/data/MBRT.RDG")
+      }
+    }
   }
 
   private def testRootObject(documentId: DocumentId, nodeId: String): IndexableRootObject =

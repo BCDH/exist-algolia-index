@@ -161,7 +161,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
       val timestamp = processing(documentId)
       perDocumentActor ! FindChanges(timestamp, userSpecifiedDocumentId, documentId)
 
-    case changes @ Changes(documentId, _, _, _, _) =>
+    case changes @ Changes(documentId, _, _, _, _, _) =>
       // cleanup per document actor (no longer required)
       val perDocumentActor = perDocumentActors(documentId)
       this.processing = processing - documentId
@@ -276,7 +276,7 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
         val deletions = rootObjectsInRemovedCollection.flatMap(path => readObjectId(path, new ObjectMapper())).distinct
 
         if (deletions.nonEmpty) {
-          context.parent ! IndexChanges(indexName, Changes(0, Seq.empty, Seq.empty, deletions, Some(collectionPath)))
+          context.parent ! IndexChanges(indexName, Changes(0, Seq.empty, Seq.empty, deletions, collectionDeletionPath = Some(collectionPath), collectionPath = Some(collectionPath)))
         } else {
           pendingCollectionRemovals = pendingCollectionRemovals - collectionPath
           context.parent ! RemovedCollection(indexName, collectionPath)
@@ -321,7 +321,7 @@ object IndexLocalStoreDocumentActor {
   val mapper = new ObjectMapper
   case class Write(timestamp: Timestamp, indexableRootObject: IndexableRootObject)
   case class FindChanges(timestamp: Timestamp, userSpecifiedDocumentId: Option[String], documentId: DocumentId)
-  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], updates: Seq[LocalIndexableRootObject], deletions: Seq[objectID], collectionDeletionPath: Option[CollectionPath] = None)
+  case class Changes(documentId: DocumentId, additions: Seq[LocalIndexableRootObject], updates: Seq[LocalIndexableRootObject], deletions: Seq[objectID], collectionDeletionPath: Option[CollectionPath] = None, collectionPath: Option[CollectionPath] = None)
   case class RemoveDocument(documentId: DocumentId, userSpecifiedDocumnentId: Option[String], maybeTimestamp: Option[Timestamp])
   case class RemovedDocument(documentId: DocumentId)
 
@@ -372,6 +372,13 @@ object IndexLocalStoreDocumentActor {
   */
 class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) extends Actor {
   private lazy val logger = Logger(classOf[IndexLocalStoreDocumentActor])
+  private def readCollectionPath(path: Path): Option[CollectionPath] =
+    Try(mapper.readTree(path.toFile))
+      .toOption
+      .flatMap(tree => Option(tree.get(COLLECTION_PATH_FIELD_NAME)).map(_.asText()))
+
+  private def inferCollectionPathFromDir(dir: Path): Option[CollectionPath] =
+    listFiles(dir).toOption.flatMap(_.iterator.flatMap(readCollectionPath).toSeq.headOption)
 
   override def receive: Receive = {
     case Write(timestamp, indexableRootObject) =>
@@ -403,12 +410,19 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
         case Some(prev) =>
           // compares the previous version with this version and sends the changes
           diff(prev, dir) match {
-            case Right((additions, updates, deletions)) if(additions.nonEmpty || updates.nonEmpty || deletions.nonEmpty) =>
-              sender ! Changes(documentId, additions, updates, deletions)
+            case Right((additions, updates, deletions)) =>
+              val collectionPath = additions.headOption.flatMap(root => readCollectionPath(root.path))
+                .orElse(updates.headOption.flatMap(root => readCollectionPath(root.path)))
+                .orElse(inferCollectionPathFromDir(dir))
+                .orElse(inferCollectionPathFromDir(prev))
 
-            case Right((additions, updates, deletions)) if(additions.isEmpty && updates.isEmpty && deletions.isEmpty) =>
-              if(logger.isTraceEnabled) {
-                logger.trace(s"No changes found between: ${prev.toAbsolutePath.toString} and ${dir.toAbsolutePath.toString}")
+              if (additions.nonEmpty || updates.nonEmpty || deletions.nonEmpty) {
+                sender ! Changes(documentId, additions, updates, deletions, collectionPath = collectionPath)
+              } else {
+                if(logger.isTraceEnabled) {
+                  logger.trace(s"No changes found between: ${prev.toAbsolutePath.toString} and ${dir.toAbsolutePath.toString}")
+                }
+                sender ! Changes(documentId, Seq.empty, Seq.empty, Seq.empty, collectionPath = collectionPath)
               }
 
             case Left(ts) =>
@@ -419,7 +433,7 @@ class IndexLocalStoreDocumentActor(indexDir: Path, documentId: DocumentId) exten
           // no previous version, so everything is an addition
           listFiles(dir) match {
             case Right(uploadable) =>
-              sender ! Changes(documentId, uploadable.map(LocalIndexableRootObject(_)), Seq.empty, Seq.empty)
+              sender ! Changes(documentId, uploadable.map(LocalIndexableRootObject(_)), Seq.empty, Seq.empty, collectionPath = uploadable.iterator.flatMap(readCollectionPath).toSeq.headOption)
 
             case Left(ts) =>
               throw ts.head  //TODO(AR) do some better error handling

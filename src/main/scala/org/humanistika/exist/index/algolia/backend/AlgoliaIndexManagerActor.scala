@@ -308,7 +308,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
     case ConfigureBatchSize(newBatchSize) =>
       this.batchSize = math.max(1, newBatchSize)
 
-    case changes @ Changes(_, _, _, _, _) =>
+    case changes @ Changes(_, _, _, _, _, _) =>
       if(logger.isTraceEnabled) {
         logChanges(changes)
       }
@@ -478,14 +478,15 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
         .toOption
         .flatMap(tree => Option(tree.get(COLLECTION_PATH_FIELD_NAME)).map(_.asText()))
 
-    (changes.additions ++ changes.updates)
-      .flatMap(collectionFromLocalRootObject)
+    (changes.collectionDeletionPath.toSeq ++
+      changes.collectionPath.toSeq ++
+      (changes.additions ++ changes.updates).flatMap(collectionFromLocalRootObject))
       .distinct
   }
 
   private def markOperationCurrent(operation: PendingOperation): Unit = operation match {
     case BatchChanges(changes) =>
-      val collections = changes.collectionDeletionPath.toSeq ++ batchCollections(changes)
+      val collections = batchCollections(changes)
       val objectCount = changes.additions.size + changes.updates.size + changes.deletions.size
       if (collections.isEmpty) {
         indexingStatusStore.markCurrent(indexName, None, operationType(operation), Some(objectCount))
@@ -502,7 +503,7 @@ class AlgoliaIndexActor(indexName: IndexName, algoliaIndexClient: AlgoliaIndexCl
 
   private def markOperationDegraded(operation: PendingOperation, error: Throwable): Unit = operation match {
     case BatchChanges(changes) =>
-      val collections = changes.collectionDeletionPath.toSeq ++ batchCollections(changes)
+      val collections = batchCollections(changes)
       if (collections.isEmpty) {
         indexingStatusStore.markDegraded(indexName, None, operationType(operation), error)
       } else {
