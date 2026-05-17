@@ -138,6 +138,10 @@ From this repo, the current Raskovnik full stack lives under:
 ../../ttasovac/
 ```
 
+Before making edits in any sibling repo from that workspace, read the target
+repo's `AGENTS.md` first and follow its local workflow and build/deploy
+contract instead of patching generated output opportunistically.
+
 Main repos:
 
 - Backend/eXist data deploy repo: `../../ttasovac/raskovnik-backend`
