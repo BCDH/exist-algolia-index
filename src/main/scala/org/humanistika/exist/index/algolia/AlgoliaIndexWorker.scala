@@ -42,6 +42,9 @@ object AlgoliaIndexWorker {
   private val COLLECTION_CONFIG_NS = "http://exist-db.org/collection-config/1.0"
 
   case class Context(var document: Option[DocumentImpl], var mode: Option[ReindexMode])
+
+  private def indexNames(config: Algolia): Seq[String] =
+    config.getIndex.asScala.map(_.getName).toSeq
 }
 
 
@@ -95,6 +98,27 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
     this.indexConfig = Option(document.getCollection().getIndexConfiguration(broker))
           .flatMap(indexSpec => Option(indexSpec.getCustomIndexSpec(AlgoliaIndex.ID).asInstanceOf[Algolia]))
     this.indexConfig.map(listener.configure)
+
+    val collectionPath = document.getCollection.getURI.getCollectionPath
+    val documentId = document.getDocId
+    this.indexConfig match {
+      case Some(config) =>
+        if (LOG.isInfoEnabled) {
+          LOG.info(
+            s"Resolved Algolia config for collectionPath=$collectionPath documentId=$documentId mode=$mode indexes=${indexNames(config).mkString(",")}"
+          )
+        }
+      case None if mode == ReindexMode.STORE || mode == ReindexMode.REMOVE_ALL_NODES =>
+        LOG.warn(
+          s"No Algolia config resolved for collectionPath=$collectionPath documentId=$documentId mode=$mode; skipping Algolia listener for this document."
+        )
+      case None =>
+        if (LOG.isDebugEnabled) {
+          LOG.debug(
+            s"No Algolia config resolved for collectionPath=$collectionPath documentId=$documentId mode=$mode"
+          )
+        }
+    }
   }
 
   override def getMode = currentContext.mode.getOrElse(ReindexMode.UNKNOWN)
@@ -154,7 +178,19 @@ class AlgoliaIndexWorker(index: AlgoliaIndex, broker: DBBroker, system: ActorSys
     * Only return the listener if we have a valid
     * configuration for the Collection
     */
-  override def getListener: StreamListener = indexConfig.map(_ => listener).getOrElse(null)
+  override def getListener: StreamListener =
+    indexConfig match {
+      case Some(_) =>
+        listener
+      case None =>
+        if (LOG.isDebugEnabled) {
+          val documentDetails = currentContext.document
+            .map(document => s"collectionPath=${document.getCollection.getURI.getCollectionPath} documentId=${document.getDocId}")
+            .getOrElse("documentId=<none>")
+          LOG.debug(s"Returning no Algolia listener because no config is available ($documentDetails mode=${getMode})")
+        }
+        null
+    }
 
   def getConfig = indexConfig
 }

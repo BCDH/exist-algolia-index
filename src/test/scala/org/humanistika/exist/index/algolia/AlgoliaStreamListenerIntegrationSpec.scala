@@ -79,6 +79,50 @@ class AlgoliaStreamListenerIntegrationSpec extends Specification with ExistServe
       expectMsg(FinishDocument(indexName, None, collectionId, docId))
     }
 
+    "produce the correct actor messages when config is inherited from a parent collection" in new AkkaTestkitSpecs2Support {
+
+      val indexName = "raskovnik-test-integration-basic"
+      val parentCollectionPath = XmldbURI.create("/db/test-integration-parent-config")
+      val childCollectionPath = parentCollectionPath.append("GE.RKMD")
+
+      implicit val brokerPool: BrokerPool = getBrokerPool
+      val algoliaIndex = createAndRegisterAlgoliaIndex(system, Some(testActor))
+
+      val collectionConfigPath = storeCollectionConfig(algoliaIndex, parentCollectionPath, getTestResource("integration/basic/collection.xconf"))
+      collectionConfigPath must beRight
+
+      val (collectionId, docId) = storeTestDocument(algoliaIndex, childCollectionPath, getTestResource("integration/basic/VSK.TEST.xml"))
+
+      collectionId mustNotEqual -1
+      docId mustNotEqual -1
+
+      val collectionPath = childCollectionPath.getRawCollectionPath
+
+      expectMsg(Authentication("some-application-id", "some-admin-api-key"))
+      expectMsg(StartDocument(indexName, collectionId, docId))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.4"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.4.1"))),
+        Left(("lemma", Seq("1.5.2.2.4.3.3"))),
+        Left(("tr", Seq("1.5.2.2.4.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.6"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.6.1"))),
+        Left(("lemma", Seq("1.5.2.2.6.3.3"))),
+        Left(("tr", Seq("1.5.2.2.6.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.8"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.8.1"))),
+        Left(("lemma", Seq("1.5.2.2.8.3.3"))),
+        Left(("tr", Seq("1.5.2.2.8.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.10"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.10.1"))),
+        Left(("lemma", Seq("1.5.2.2.10.3.3"))),
+        Left(("tr", Seq("1.5.2.2.10.9.3.3")))))
+      assertAdd(expectMsgType[Add])(indexName, collectionPath, collectionId, docId, None, None, Some("1.5.2.2.12"), None, Seq(
+        Left(("dict", Seq("1.5.2.2.12.1"))),
+        Left(("lemma", Seq("1.5.2.2.12.3.3"))),
+        Left(("tr", Seq("1.5.2.2.12.9.3.3")))))
+      expectMsg(FinishDocument(indexName, None, collectionId, docId))
+    }
+
 
     "produce the correct actor messages for elements with attributes" in new AkkaTestkitSpecs2Support {
 

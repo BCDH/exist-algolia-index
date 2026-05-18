@@ -204,6 +204,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   private var userSpecifiedVisibleByIds: Map[IndexName, UserSpecifiedOption] = Map.empty
   private var userSpecifiedNodeIds: Map[(IndexName, NodePath), Option[UserSpecifiedNodeId]] = Map.empty
   private var missingUserSpecifiedNodeIdFallbacks: Map[(IndexName, NodePath), Int] = Map.empty
+  private var indexedRootObjectCount: Int = 0
 
   case class ContextElement(name: QName, attributes: Map[QName, String])
   private val context: Deque[ContextElement] = new ArrayDeque[ContextElement]()
@@ -406,11 +407,17 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
   }
 
   private def startIndexDocumentForStore() {
+    indexedRootObjectCount = 0
+
     // start indexing any documents for which we have IndexableRootObjects
     indexConfigs.keys.foreach(indexName => startIndexDocument(indexName, indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
 
     // find any RootObjects that we should start processing
     val documentRootObjects = getRootObjectConfigs(isDocumentRootObject)
+
+    logger.info(
+      s"Starting Algolia extraction for collectionPath=${indexWorker.getDocument.getCollection.getURI.getCollectionPath} documentId=${indexWorker.getDocument.getDocId} indexes=${indexConfigs.keys.toSeq.sorted.mkString(",")} documentRootObjects=${documentRootObjects.size}"
+    )
 
     if (documentRootObjects.nonEmpty) {
       // as we are just starting a document,
@@ -478,6 +485,18 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
     // finish indexing any documents for which we have IndexableRootObjects
     indexConfigs.keys.foreach(indexName => finishDocumentIndex(indexName, userSpecifiedDocumentIds.get(indexName).flatMap(_.value), userSpecifiedVisibleByIds.get(indexName).flatMap(_.value), indexWorker.getDocument.getCollection.getId, indexWorker.getDocument.getDocId))
+
+    val collectionPath = indexWorker.getDocument.getCollection.getURI.getCollectionPath
+    val documentId = indexWorker.getDocument.getDocId
+    if (indexedRootObjectCount == 0) {
+      logger.warn(
+        s"Finished Algolia extraction with zero emitted root objects for collectionPath=$collectionPath documentId=$documentId indexes=${indexConfigs.keys.toSeq.sorted.mkString(",")}"
+      )
+    } else {
+      logger.info(
+        s"Finished Algolia extraction for collectionPath=$collectionPath documentId=$documentId emittedRootObjects=$indexedRootObjectCount indexes=${indexConfigs.keys.toSeq.sorted.mkString(",")}"
+      )
+    }
 
     // finished... so clear the map of things we are processing
     this.processing = Map.empty
@@ -916,6 +935,7 @@ class AlgoliaStreamListener(indexWorker: AlgoliaIndexWorker, broker: DBBroker, i
 
   //INDEX IT!
   private def index(indexName: IndexName, indexableRootObject: IndexableRootObject) {
+    indexedRootObjectCount += 1
     incrementalIndexingActor ! Add(indexName, indexableRootObject)
   }
 
