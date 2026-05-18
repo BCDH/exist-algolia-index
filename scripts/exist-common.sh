@@ -45,6 +45,9 @@ SMOKE_CONFIG_COLLECTION_PATH="/db/system/config/db/${SMOKE_COLLECTION_NAME}"
 SMOKE_DOC_FILENAME="smoke.xml"
 SMOKE_CONFIG_FILENAME="collection.xconf"
 SMOKE_INDEX_NAME="${ALGOLIA_SMOKE_INDEX_NAME:-exist-algolia-index-smoke}"
+ALGOLIA_SYNC_INDEX_NAME="${ALGOLIA_SYNC_INDEX_NAME:-ras}"
+ALGOLIA_SYNC_VERIFY_TIMEOUT_SECONDS="${ALGOLIA_SYNC_VERIFY_TIMEOUT_SECONDS:-300}"
+ALGOLIA_SYNC_VERIFY_INTERVAL_SECONDS="${ALGOLIA_SYNC_VERIFY_INTERVAL_SECONDS:-5}"
 
 PROJECT_VERSION=$(
   sed -n 's/^ThisBuild \/ version := "\(.*\)"/\1/p' "${ROOT_DIR}/version.sbt" | head -n 1
@@ -78,6 +81,7 @@ readonly PLUGIN_GROUP_ID PLUGIN_ARTIFACT_ID PLUGIN_ID PLUGIN_CLASS
 readonly MANAGED_CONF_BEGIN MANAGED_CONF_END MANAGED_STARTUP_BEGIN MANAGED_STARTUP_END
 readonly SMOKE_COLLECTION_NAME SMOKE_COLLECTION_PATH SMOKE_CONFIG_COLLECTION_PATH
 readonly SMOKE_DOC_FILENAME SMOKE_CONFIG_FILENAME
+readonly ALGOLIA_SYNC_INDEX_NAME ALGOLIA_SYNC_VERIFY_TIMEOUT_SECONDS ALGOLIA_SYNC_VERIFY_INTERVAL_SECONDS
 readonly PROJECT_VERSION EXIST_VERSION SCALA_BINARY_VERSION
 readonly PLUGIN_JAR_FILENAME PLUGIN_JAR_PATH
 
@@ -151,6 +155,331 @@ require_algolia_credentials() {
     echo "ALGOLIA_ADMIN_API_KEY must be set." >&2
     exit 1
   fi
+}
+
+xquery_string_literal() {
+  python3 - "$1" <<'PY'
+import sys
+value = sys.argv[1].replace("'", "''")
+print("'" + value + "'")
+PY
+}
+
+collection_sync_slug() {
+  printf '%s' "${1#/}" | sed 's#[^A-Za-z0-9._-]#_#g'
+}
+
+collection_sync_quarantine_name() {
+  local collection_path=$1
+  local timestamp=$2
+  printf '%s__%s' "${timestamp}" "$(collection_sync_slug "${collection_path}")"
+}
+
+algolia_collection_sync_report_json() {
+  local indexes_root=$1
+  local index_name=$2
+  local collection_path=$3
+
+  require_cmd python3
+  require_algolia_credentials
+
+  python3 "${ROOT_DIR}/scripts/algolia_collection_sync.py" \
+    report \
+    --indexes-root "${indexes_root}" \
+    --index "${index_name}" \
+    --collection-path "${collection_path}" \
+    --app-id "${ALGOLIA_APPLICATION_ID}" \
+    --api-key "${ALGOLIA_ADMIN_API_KEY}"
+}
+
+algolia_collection_sync_json_field() {
+  local report_json=$1
+  local field_name=$2
+
+  REPORT_JSON="${report_json}" FIELD_NAME="${field_name}" python3 - <<'PY'
+import json
+import os
+
+report = json.loads(os.environ["REPORT_JSON"])
+value = report[os.environ["FIELD_NAME"]]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, list):
+    for item in value:
+        print(item)
+elif value is None:
+    print("")
+else:
+    print(value)
+PY
+}
+
+collection_sync_document_dirs_from_report() {
+  algolia_collection_sync_json_field "$1" matchingDocumentDirs
+}
+
+print_algolia_collection_sync_report() {
+  local report_json=$1
+  local reconcile_hint=${2:-}
+
+  REPORT_JSON="${report_json}" RECONCILE_HINT="${reconcile_hint}" python3 - <<'PY'
+import json
+import os
+
+report = json.loads(os.environ["REPORT_JSON"])
+status = "OK" if report["synced"] else "MISMATCH"
+print(
+    f"Algolia collection sync {status}: "
+    f"index={report['index']} collection={report['collectionPath']} "
+    f"local={report['localCount']} live={report['liveCount']} "
+    f"missing-in-live={report['missingInLiveCount']} "
+    f"unexpected-in-live={report['unexpectedInLiveCount']}"
+)
+if report["sampleMissingInLive"]:
+    print("Sample missing-in-live: " + ", ".join(report["sampleMissingInLive"]))
+if report["sampleUnexpectedInLive"]:
+    print("Sample unexpected-in-live: " + ", ".join(report["sampleUnexpectedInLive"]))
+if not report["synced"] and os.environ.get("RECONCILE_HINT"):
+    print("Recommended reconcile command: " + os.environ["RECONCILE_HINT"] + " " + report["collectionPath"])
+PY
+}
+
+run_collection_sync_verification() {
+  local collection_path=$1
+  local report_callback=$2
+  local reconcile_hint=${3:-}
+  local report_json
+
+  report_json=$("${report_callback}" "${collection_path}")
+  print_algolia_collection_sync_report "${report_json}" "${reconcile_hint}"
+  [[ "$(algolia_collection_sync_json_field "${report_json}" synced)" == "true" ]]
+}
+
+run_collection_sync_reconcile_flow() {
+  local collection_path=$1
+  local report_callback=$2
+  local quarantine_callback=$3
+  local reindex_callback=$4
+  local reconcile_hint=$5
+  local force=${6:-0}
+  local timeout_seconds=${7:-${ALGOLIA_SYNC_VERIFY_TIMEOUT_SECONDS}}
+  local interval_seconds=${8:-${ALGOLIA_SYNC_VERIFY_INTERVAL_SECONDS}}
+
+  local report_json synced started_at elapsed
+
+  report_json=$("${report_callback}" "${collection_path}")
+  print_algolia_collection_sync_report "${report_json}" "${reconcile_hint}"
+  synced=$(algolia_collection_sync_json_field "${report_json}" synced)
+  if [[ "${synced}" == "true" && "${force}" != "1" ]]; then
+    echo "Collection already synced; skipping reconcile."
+    return 0
+  fi
+
+  "${quarantine_callback}" "${collection_path}" "${report_json}"
+  "${reindex_callback}" "${collection_path}"
+
+  started_at=$(date +%s)
+  while true; do
+    report_json=$("${report_callback}" "${collection_path}")
+    print_algolia_collection_sync_report "${report_json}" "${reconcile_hint}"
+    synced=$(algolia_collection_sync_json_field "${report_json}" synced)
+    if [[ "${synced}" == "true" ]]; then
+      echo "Collection reconcile completed for ${collection_path}"
+      return 0
+    fi
+
+    elapsed=$(( $(date +%s) - started_at ))
+    if (( elapsed >= timeout_seconds )); then
+      echo "Timed out waiting for Algolia collection sync to converge for ${collection_path} after ${elapsed}s." >&2
+      return 1
+    fi
+
+    sleep "${interval_seconds}"
+  done
+}
+
+quarantine_local_store_dirs_on_host() {
+  local host_data_dir=$1
+  local collection_path=$2
+  local report_json=$3
+
+  local index_name timestamp quarantine_name quarantine_dir index_dir doc_literals="" xquery
+  local doc_dir
+  local -a doc_dirs=()
+
+  index_name=$(algolia_collection_sync_json_field "${report_json}" index)
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  quarantine_name=$(collection_sync_quarantine_name "${collection_path}" "${timestamp}")
+  quarantine_dir="${data_dir}/algolia-index/quarantine/${index_name}/${quarantine_name}"
+  index_dir="${data_dir}/algolia-index/indexes/${index_name}"
+
+  while IFS= read -r doc_dir; do
+    [[ -z "${doc_dir}" ]] && continue
+    doc_dirs+=("${doc_dir}")
+    if [[ -n "${doc_literals}" ]]; then
+      doc_literals+=", "
+    fi
+    doc_literals+="$(xquery_string_literal "${doc_dir}")"
+  done < <(collection_sync_document_dirs_from_report "${report_json}")
+
+  echo "Quarantine metadata: collection=${collection_path} index=${index_name} timestamp=${timestamp}"
+  echo "Quarantine backup dir: ${quarantine_dir}"
+  if [[ "${#doc_dirs[@]}" -eq 0 ]]; then
+    echo "Quarantined document dirs: none"
+    return 0
+  fi
+  echo "Quarantined document dirs: ${doc_dirs[*]}"
+
+  set +e
+  HOST_DATA_DIR="${host_data_dir}" \
+  INDEX_NAME="${index_name}" \
+  QUARANTINE_NAME="${quarantine_name}" \
+  DOC_DIRS="$(printf '%s\n' "${doc_dirs[@]}")" \
+  python3 - <<'PY'
+import os
+import pathlib
+import shutil
+
+host_data_dir = pathlib.Path(os.environ["HOST_DATA_DIR"])
+index_name = os.environ["INDEX_NAME"]
+quarantine_name = os.environ["QUARANTINE_NAME"]
+doc_dirs = [line for line in os.environ["DOC_DIRS"].splitlines() if line]
+
+index_dir = host_data_dir / "algolia-index" / "indexes" / index_name
+quarantine_dir = host_data_dir / "algolia-index" / "quarantine" / index_name / quarantine_name
+quarantine_dir.mkdir(parents=True, exist_ok=True)
+
+for doc_dir in doc_dirs:
+    source = index_dir / doc_dir
+    target = quarantine_dir / doc_dir
+    if source.exists():
+        shutil.move(str(source), str(target))
+        print(f"<dir name=\"{doc_dir}\" moved=\"true\" source=\"{source}\" target=\"{target}\"/>")
+    else:
+        print(f"<dir name=\"{doc_dir}\" moved=\"false\" reason=\"missing-source\" source=\"{source}\" target=\"{target}\"/>")
+PY
+  local python_status=$?
+  set -e
+  if [[ "${python_status}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if [[ -n "${LOCAL_STORE_DOCKER_HELPER_IMAGE:-}" ]]; then
+    require_cmd docker
+    HOST_DATA_DIR="${host_data_dir}" \
+    INDEX_NAME="${index_name}" \
+    QUARANTINE_NAME="${quarantine_name}" \
+    DOC_DIRS="$(printf '%s\n' "${doc_dirs[@]}")" \
+    docker run --rm \
+      -v "${host_data_dir}:/algolia-data" \
+      -e INDEX_NAME \
+      -e QUARANTINE_NAME \
+      -e DOC_DIRS \
+      "${LOCAL_STORE_DOCKER_HELPER_IMAGE}" \
+      sh -eu -c '
+quarantine_dir="/algolia-data/algolia-index/quarantine/${INDEX_NAME}/${QUARANTINE_NAME}"
+index_dir="/algolia-data/algolia-index/indexes/${INDEX_NAME}"
+mkdir -p "${quarantine_dir}"
+printf "%s\n" "${DOC_DIRS}" | while IFS= read -r doc_dir; do
+  [ -z "${doc_dir}" ] && continue
+  source="${index_dir}/${doc_dir}"
+  target="${quarantine_dir}/${doc_dir}"
+  if [ -e "${source}" ]; then
+    mv "${source}" "${target}"
+    printf "<dir name=\"%s\" moved=\"true\" source=\"%s\" target=\"%s\"/>\n" "${doc_dir}" "${source}" "${target}"
+  else
+    printf "<dir name=\"%s\" moved=\"false\" reason=\"missing-source\" source=\"%s\" target=\"%s\"/>\n" "${doc_dir}" "${source}" "${target}"
+  fi
+done
+'
+    return 0
+  fi
+
+  return "${python_status}"
+}
+
+quarantine_local_store_dirs_via_xquery() {
+  local query_runner=$1
+  local xquery_data_dir=$2
+  local host_data_dir=$3
+  local collection_path=$4
+  local report_json=$5
+
+  local index_name timestamp quarantine_name quarantine_dir index_dir doc_literals="" xquery
+  local query_output_file
+  local query_status=0
+  local doc_dir
+  local -a doc_dirs=()
+
+  index_name=$(algolia_collection_sync_json_field "${report_json}" index)
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  quarantine_name=$(collection_sync_quarantine_name "${collection_path}" "${timestamp}")
+  quarantine_dir="${xquery_data_dir}/algolia-index/quarantine/${index_name}/${quarantine_name}"
+  index_dir="${xquery_data_dir}/algolia-index/indexes/${index_name}"
+
+  while IFS= read -r doc_dir; do
+    [[ -z "${doc_dir}" ]] && continue
+    doc_dirs+=("${doc_dir}")
+    if [[ -n "${doc_literals}" ]]; then
+      doc_literals+=", "
+    fi
+    doc_literals+="$(xquery_string_literal "${doc_dir}")"
+  done < <(collection_sync_document_dirs_from_report "${report_json}")
+
+  echo "Quarantine metadata: collection=${collection_path} index=${index_name} timestamp=${timestamp}"
+  echo "Quarantine backup dir: ${quarantine_dir}"
+  if [[ "${#doc_dirs[@]}" -eq 0 ]]; then
+    echo "Quarantined document dirs: none"
+    return 0
+  fi
+  echo "Quarantined document dirs: ${doc_dirs[*]}"
+
+  xquery=$(cat <<EOF
+xquery version "3.1";
+import module namespace file="http://expath.org/ns/file";
+let \$index-dir := $(xquery_string_literal "${index_dir}")
+let \$quarantine-dir := $(xquery_string_literal "${quarantine_dir}")
+let \$doc-dirs := (${doc_literals})
+let \$create := file:create-dir(\$quarantine-dir)
+return
+<quarantine collection="${collection_path}" index="${index_name}" timestamp="${timestamp}">
+{
+  for \$doc-dir in \$doc-dirs
+  let \$source := file:resolve-path(concat(\$index-dir, "/", \$doc-dir))
+  let \$target := file:resolve-path(concat(\$quarantine-dir, "/", \$doc-dir))
+  return
+    if (file:exists(\$source)) then (
+      file:move(\$source, \$target),
+      <dir name="{\$doc-dir}" moved="true" source="{\$source}" target="{\$target}"/>
+    ) else
+      <dir name="{\$doc-dir}" moved="false" reason="missing-source" source="{\$source}" target="{\$target}"/>
+}
+</quarantine>
+EOF
+)
+
+  query_output_file=$(mktemp)
+  set +e
+  "${query_runner}" "${xquery}" >"${query_output_file}" 2>&1
+  query_status=$?
+  set -e
+  if [[ "${query_status}" -eq 0 ]]; then
+    cat "${query_output_file}"
+    rm -f "${query_output_file}"
+    return 0
+  fi
+
+  if grep -q "http://expath.org/ns/file" "${query_output_file}" && [[ -n "${host_data_dir}" ]]; then
+    echo "File-capable XQuery module unavailable; falling back to host-mounted local-store quarantine." >&2
+    cat "${query_output_file}" >&2
+    rm -f "${query_output_file}"
+    quarantine_local_store_dirs_on_host "${host_data_dir}" "${collection_path}" "${report_json}"
+    return 0
+  fi
+
+  cat "${query_output_file}" >&2
+  rm -f "${query_output_file}"
+  return "${query_status}"
 }
 
 smoke_collection_config() {

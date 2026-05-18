@@ -73,6 +73,8 @@ Common staging commands:
 ./scripts/exist-stage.sh run --skip-reindex
 ./scripts/exist-stage.sh reindex-collection /db/apps/raskovnik-data/data
 ./scripts/exist-stage.sh reindex-collection /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh verify-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
 ```
 
 ## Indexing Status
@@ -90,6 +92,15 @@ States:
 - `stale_local_store`: the plugin could not derive collection-delete object IDs from the local store.
 
 Local and staging helper verification should fail when `status.json` contains `degraded` or `stale_local_store`. Missing `status.json` is intentionally treated as OK for first installs and older deployments.
+
+In addition to `status.json`, the helper scripts now expose explicit live-vs-local verification and recovery commands:
+
+- `verify-collection-sync /db/apps/raskovnik-data/data/<DICT_ID>`
+- `reconcile-collection /db/apps/raskovnik-data/data/<DICT_ID>`
+
+Use them when you suspect silent divergence between live Algolia and the local store. Normal reindex is not a guaranteed recovery path once those two states drift apart because the incremental diff still trusts the local snapshot.
+
+`reconcile-collection` quarantines matching local-store document directories under `algolia-index/quarantine/<index>/<timestamp>__<collection-slug>/`, reruns `xmldb:reindex(...)`, and re-verifies until sync converges or times out. Those quarantine directories are intentional forensic backups; do not delete them automatically during the command.
 
 ## Raskovnik Staging Notes
 

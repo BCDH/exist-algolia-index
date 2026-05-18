@@ -133,6 +133,56 @@ Status states:
 
 The local and staging helper scripts fail verification when `status.json` contains `degraded` or `stale_local_store` records. Resolve those states before treating a deployment as successful. In practice, check the failure message in `status.json` and the Algolia/eXist logs, then retry the targeted reindex or run a wider backfill if the local store is missing the needed collection state.
 
+### Live vs local-store sync
+
+The plugin's incremental reindex path computes diffs from the local store under `algolia-index/indexes/`. That means a normal `xmldb:reindex(...)` is not a guaranteed recovery path once the local store and live Algolia have drifted apart.
+
+The failure mode this now guards against is simple:
+
+- the local store still contains the full object set for a collection tree
+- live Algolia has silently lost some of those objects
+- a normal reindex trusts the local snapshot, emits only small diffs, and leaves the live loss in place
+
+Use the explicit verification command to compare exact `objectID` sets for one collection tree:
+
+```sh
+./scripts/exist-local.sh verify-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh verify-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-production-hotpatch.sh verify-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+```
+
+The check reads the latest local-store snapshot per document directory, filters by exact collection-tree membership, browses the live Algolia index, and compares exact `objectID` sets. It reports:
+
+- local count
+- live count
+- missing-in-live count
+- unexpected-in-live count
+- small sample mismatches
+
+If the command reports a mismatch, use the explicit reconcile flow:
+
+```sh
+./scripts/exist-local.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-production-hotpatch.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
+```
+
+Add `--force` if you want to reindex even when verification already reports a clean match.
+
+Reconcile does not modify the local store in place. Instead it:
+
+- verifies the collection first
+- no-ops when already synced unless `--force` is used
+- quarantines matching local-store document directories to `algolia-index/quarantine/<index>/<timestamp>__<collection-slug>/`
+- runs `xmldb:reindex(<collection-path>)`
+- re-verifies until the live/local sets match or the command times out
+
+Those quarantine backups are intentional forensic evidence. Keep them until you have confirmed the recovery and no longer need the old snapshots.
+
+#### Incident note
+
+The motivating example was a staging `GE.RKMD` incident where the local store still represented the full collection tree, live Algolia no longer did, and an ordinary reindex produced only small diffs instead of a full republish. The initiating record loss remains unknown; the new commands close the persistence gap that let that bad state survive verification.
+
 ### Limiting Object Access
 
 You can limit data access by setting the `visibleBy` attribute in `collection.xconf` and mapping it to the corresponding path in your XML data, preferably in the document header.
@@ -172,7 +222,7 @@ The log output will then appear in eXist's configured log directory, usually `lo
 
 ## Current limitations
 
-When you back up eXist, you should also back up the `algolia-index` directory inside eXist's configured data directory, because it holds the local representation of what is stored on the remote Algolia server. Support for integrating that local store into a native backup/restore workflow may be added later.
+When you back up eXist, you should also back up the `algolia-index` directory inside eXist's configured data directory, because it holds the local representation of what is stored on the remote Algolia server. That now includes the `algolia-index/quarantine/` subtree used by explicit reconcile runs. Support for integrating that local store into a native backup/restore workflow may be added later.
 
 ## Acknowledgements
 

@@ -21,12 +21,17 @@ Commands:
   run                 Hotpatch production, restart eXist, and run smoke verification.
                       By default this reindexes production dictionary data.
   reindex-collection  Reindex one configured production collection.
+  verify-collection-sync
+                      Compare live Algolia records with the production local-store snapshot.
+  reconcile-collection
+                      Quarantine matching production local-store snapshots, reindex, and verify convergence.
   help                Show this help message.
 
 Options:
   --skip-build        Reuse the existing local assembly JAR instead of rebuilding it.
   --skip-reindex      With run, skip reindexing production dictionary data after
                       smoke verification.
+  --force             With reconcile-collection, reindex even if sync already matches.
 
 Required environment for upload/run/reindex:
   EXIST_PRODUCTION_HOST
@@ -102,6 +107,7 @@ export_stage_compat_env() {
   export EXIST_STAGE_ALGOLIA_ADMIN_API_KEY="${EXIST_PRODUCTION_ALGOLIA_ADMIN_API_KEY:-}"
   export EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME="${EXIST_PRODUCTION_ALGOLIA_SMOKE_INDEX_NAME}"
   export EXIST_STAGE_REINDEX_COLLECTION="${EXIST_PRODUCTION_REINDEX_COLLECTION:-}"
+  export EXIST_SYNC_HINT_PREFIX="scripts/exist-production-hotpatch.sh reconcile-collection"
 }
 
 run_stage_wrapper() {
@@ -112,6 +118,7 @@ main() {
   local command=${1:-help}
   local skip_build=0
   local skip_reindex=0
+  local force=0
   local collection_path=
 
   shift $(( $# > 0 ? 1 : 0 ))
@@ -122,6 +129,9 @@ main() {
         ;;
       --skip-reindex)
         skip_reindex=1
+        ;;
+      --force)
+        force=1
         ;;
       help|-h|--help)
         usage
@@ -183,6 +193,31 @@ main() {
         return 1
       fi
       run_stage_wrapper reindex-collection "${collection_path}"
+      ;;
+    verify-collection-sync)
+      require_production_target
+      require_production_secrets
+      export_stage_compat_env
+      if [[ -z "${collection_path}" ]]; then
+        echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+        return 1
+      fi
+      run_stage_wrapper verify-collection-sync "${collection_path}"
+      ;;
+    reconcile-collection)
+      require_production_target
+      require_production_secrets
+      export_stage_compat_env
+      if [[ -z "${collection_path}" ]]; then
+        echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+        return 1
+      fi
+      local args=(reconcile-collection)
+      if [[ "${force}" -eq 1 ]]; then
+        args+=(--force)
+      fi
+      args+=("${collection_path}")
+      run_stage_wrapper "${args[@]}"
       ;;
     help|-h|--help)
       usage

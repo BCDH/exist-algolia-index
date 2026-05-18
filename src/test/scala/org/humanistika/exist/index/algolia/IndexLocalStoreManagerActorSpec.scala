@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.exist.util.FileUtils
 import org.humanistika.exist.index.algolia.backend.{IndexLocalStoreActor, IndexingStatusStore}
 import org.humanistika.exist.index.algolia.backend.IndexLocalStoreManagerActor.collectionPathMatchesTree
+import org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor.{Changes, FindChanges}
 import org.humanistika.exist.index.algolia.backend.IncrementalIndexingManagerActor.{CollectionDeletesApplied, FlushPendingCollectionRemovals, IndexChanges, RemoveForCollection, RemovedCollection}
 import org.specs2.mutable.Specification
 
@@ -111,8 +112,41 @@ class IndexLocalStoreManagerActorSpec extends Specification {
     }
   }
 
+  "IndexLocalStoreDocumentActor" should {
+    "treat a quarantined snapshot as full additions on the next reindex" in new AkkaTestkitSpecs2Support {
+      val indexDir = Files.createTempDirectory("algolia-index-local-store-document")
+      val quarantineDir = Files.createTempDirectory("algolia-index-local-store-quarantine")
+      try {
+        val documentDirName = "1"
+        val oldFile = writeStoredRootObject(indexDir, "", documentDirName, 100L, "target.json", "/db/apps/raskovnik-data/data/GE.RKMD")
+        Files.createDirectories(quarantineDir)
+        Files.move(indexDir.resolve(documentDirName), quarantineDir.resolve(documentDirName))
+        val quarantinedOldFile = quarantineDir.resolve(documentDirName).resolve("100").resolve("target.json")
+
+        val newFile = writeStoredRootObject(indexDir, "", documentDirName, 200L, "target.json", "/db/apps/raskovnik-data/data/GE.RKMD")
+        val actor = system.actorOf(Props(classOf[org.humanistika.exist.index.algolia.backend.IndexLocalStoreDocumentActor], indexDir, 1))
+
+        Files.exists(oldFile) must beFalse
+        Files.exists(quarantinedOldFile) must beTrue
+        Files.exists(newFile) must beTrue
+
+        actor ! FindChanges(200L, None, 1)
+        val changes = expectMsgType[Changes]
+        changes.additions.map(_.path.getFileName.toString) must contain(exactly("target.json"))
+        changes.updates must beEmpty
+        changes.deletions must beEmpty
+        changes.collectionPath must beSome("/db/apps/raskovnik-data/data/GE.RKMD")
+      } finally {
+        FileUtils.deleteQuietly(indexDir)
+        FileUtils.deleteQuietly(quarantineDir)
+      }
+    }
+  }
+
   private def writeStoredRootObject(indexesDir: Path, indexName: String, documentDir: String, timestamp: Long, filename: String, collectionPath: String): Path = {
-    val timestampDir = indexesDir.resolve(indexName).resolve(documentDir).resolve(timestamp.toString)
+    val timestampDir =
+      if (indexName.isEmpty) indexesDir.resolve(documentDir).resolve(timestamp.toString)
+      else indexesDir.resolve(indexName).resolve(documentDir).resolve(timestamp.toString)
     Files.createDirectories(timestampDir)
 
     val file = timestampDir.resolve(filename)

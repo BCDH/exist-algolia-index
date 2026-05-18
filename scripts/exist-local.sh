@@ -20,7 +20,7 @@ SMOKE_INDEX_NAME="${EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/exist-local.sh <command> [--skip-reindex] [collection-path]
+Usage: scripts/exist-local.sh <command> [--skip-reindex] [--force] [collection-path]
 
 Commands:
   build              Build the plugin assembly JAR with sbt.
@@ -28,6 +28,10 @@ Commands:
   configure-plugin   Ensure conf.xml contains the Algolia index module stanza.
   configure-startup  Ensure startup.xml contains the plugin dependency entry.
   reindex-collection Reindex one configured collection to backfill Algolia.
+  verify-collection-sync
+                    Compare live Algolia records with the local-store snapshot.
+  reconcile-collection
+                    Quarantine local-store snapshots for one collection, reindex, and verify convergence.
   restart            Restart eXist using EXIST_RESTART_CMD if configured.
   verify             Verify install state and run the smoke reindex check.
   run                Build, install, configure, restart if configured, verify, then reindex.
@@ -49,6 +53,9 @@ Optional environment:
   EXIST_RESTART_CMD
   EXIST_LOCAL_ALGOLIA_SMOKE_INDEX_NAME=exist-algolia-index-smoke-local
   EXIST_LOCAL_REINDEX_COLLECTION=/db
+
+Options:
+  --force            With reconcile-collection, reindex even if sync already matches.
 EOF
 }
 
@@ -393,6 +400,43 @@ verify_local_indexing_status() {
   verify_indexing_status_file "${data_dir}/algolia-index/status.json" "Local Algolia indexing status"
 }
 
+local_collection_sync_report() {
+  local collection_path=$1
+  local data_dir
+
+  require_collection_path "${collection_path}"
+  data_dir=$(resolve_local_data_dir)
+  algolia_collection_sync_report_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}"
+}
+
+local_quarantine_collection_store() {
+  local collection_path=$1
+  local report_json=$2
+  local data_dir
+
+  data_dir=$(resolve_local_data_dir)
+  quarantine_local_store_dirs_via_xquery local_client_query "${data_dir}" "${data_dir}" "${collection_path}" "${report_json}"
+}
+
+verify_collection_sync() {
+  local collection_path=$1
+  run_collection_sync_verification "${collection_path}" local_collection_sync_report "scripts/exist-local.sh reconcile-collection"
+}
+
+reconcile_collection_sync() {
+  local collection_path=$1
+  local force=$2
+
+  require_local_admin
+  run_collection_sync_reconcile_flow \
+    "${collection_path}" \
+    local_collection_sync_report \
+    local_quarantine_collection_store \
+    reindex_collection \
+    "scripts/exist-local.sh reconcile-collection" \
+    "${force}"
+}
+
 verify_install() {
   local conf_xml startup_xml plugin_lib_dir installed_jar restart_log=${1:-}
 
@@ -512,12 +556,16 @@ main() {
   local command=${1:-help}
   local collection_path=
   local skip_reindex=0
+  local force=0
 
   shift $(( $# > 0 ? 1 : 0 ))
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-reindex)
         skip_reindex=1
+        ;;
+      --force)
+        force=1
         ;;
       /db|/db/*)
         collection_path=$1
@@ -550,6 +598,12 @@ main() {
       ;;
     reindex-collection)
       reindex_collection "${collection_path}"
+      ;;
+    verify-collection-sync)
+      verify_collection_sync "${collection_path}"
+      ;;
+    reconcile-collection)
+      reconcile_collection_sync "${collection_path}" "${force}"
       ;;
     restart)
       restart_exist
