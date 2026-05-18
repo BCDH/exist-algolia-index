@@ -218,6 +218,20 @@ collection_sync_document_dirs_from_report() {
   algolia_collection_sync_json_field "$1" matchingDocumentDirs
 }
 
+summarize_xquery_file_module_error() {
+  local query_output_file=$1
+  local summary
+
+  summary=$(grep -m1 "http://expath.org/ns/file" "${query_output_file}" || true)
+  if [[ -z "${summary}" ]]; then
+    summary=$(grep -m1 -E "module namespace file|XPST|XQST|expath" "${query_output_file}" || true)
+  fi
+  if [[ -z "${summary}" ]]; then
+    summary=$(awk 'NF { print; exit }' "${query_output_file}")
+  fi
+  printf '%s' "${summary}"
+}
+
 print_algolia_collection_sync_report() {
   local report_json=$1
   local reconcile_hint=${2:-}
@@ -470,8 +484,12 @@ EOF
   fi
 
   if grep -q "http://expath.org/ns/file" "${query_output_file}" && [[ -n "${host_data_dir}" ]]; then
+    local summary
+    summary=$(summarize_xquery_file_module_error "${query_output_file}")
     echo "File-capable XQuery module unavailable; falling back to host-mounted local-store quarantine." >&2
-    cat "${query_output_file}" >&2
+    if [[ -n "${summary}" ]]; then
+      echo "XQuery fallback reason: ${summary}" >&2
+    fi
     rm -f "${query_output_file}"
     quarantine_local_store_dirs_on_host "${host_data_dir}" "${collection_path}" "${report_json}"
     return 0

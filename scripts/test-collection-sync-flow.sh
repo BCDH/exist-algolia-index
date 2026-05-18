@@ -70,6 +70,22 @@ stub_reindex() {
   touch "${TEST_SYNC_MARKER}"
 }
 
+stub_query_runner_missing_file_module() {
+  cat <<'EOF'
+err:XQST0059 module not found: http://expath.org/ns/file
+Stacktrace line 1
+Stacktrace line 2
+EOF
+  return 1
+}
+
+stub_host_quarantine() {
+  local data_dir=$1
+  local collection_path=$2
+  local report_json=$3
+  printf '%s|%s|%s\n' "${data_dir}" "${collection_path}" "$(algolia_collection_sync_json_field "${report_json}" index)" >> "${TEST_QUARANTINE_LOG}"
+}
+
 run_noop_when_already_synced_test() {
   local output
   TEST_ROOT=$(mktemp -d)
@@ -122,7 +138,38 @@ run_reconcile_after_mismatch_test() {
   pass_count=$((pass_count + 1))
 }
 
+run_xquery_file_module_fallback_logging_test() {
+  local stdout_file stderr_file
+  TEST_ROOT=$(mktemp -d)
+  TEST_QUARANTINE_LOG="${TEST_ROOT}/quarantine.log"
+  : > "${TEST_QUARANTINE_LOG}"
+  stdout_file="${TEST_ROOT}/stdout.log"
+  stderr_file="${TEST_ROOT}/stderr.log"
+
+  quarantine_local_store_dirs_on_host() {
+    stub_host_quarantine "$@"
+  }
+
+  quarantine_local_store_dirs_via_xquery \
+    stub_query_runner_missing_file_module \
+    "/exist/data" \
+    "/host/data" \
+    "/db/apps/raskovnik-data/data/GE.RKMD" \
+    "$(test_report_mismatch)" \
+    >"${stdout_file}" 2>"${stderr_file}"
+
+  grep -q "File-capable XQuery module unavailable; falling back to host-mounted local-store quarantine." "${stderr_file}" || fail "fallback message missing"
+  grep -q "XQuery fallback reason: err:XQST0059 module not found: http://expath.org/ns/file" "${stderr_file}" || fail "fallback reason missing"
+  if grep -q "Stacktrace line 1" "${stderr_file}"; then
+    fail "raw EXPath stack trace should not be logged during fallback"
+  fi
+  assert_file_lines 1 "${TEST_QUARANTINE_LOG}"
+  rm -rf "${TEST_ROOT}"
+  pass_count=$((pass_count + 1))
+}
+
 run_noop_when_already_synced_test
 run_reconcile_after_mismatch_test
+run_xquery_file_module_fallback_logging_test
 
 printf '%d collection-sync flow tests passed.\n' "${pass_count}"
