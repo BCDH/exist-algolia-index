@@ -29,6 +29,7 @@ package org.humanistika.exist.index.algolia
 import java.io.IOException
 import java.nio.file.{Files, Path, Paths}
 import java.util.{Properties, Optional => JOptional}
+import java.util.UUID
 
 import org.exist.EXistException
 
@@ -94,34 +95,40 @@ trait ExistServerStartStopHelper {
         }
 
 
-        val name = instanceName.getOrElse(ScalaBrokerPoolBridge.DEFAULT_INSTANCE_NAME)
+        val name = instanceName.getOrElse(s"${ScalaBrokerPoolBridge.DEFAULT_INSTANCE_NAME}-${UUID.randomUUID().toString}")
         val home = Option(System.getProperty("exist.home", System.getProperty("user.dir"))).map(Paths.get(_))
         val confFile = configFile.getOrElse(ConfigurationHelper.lookup("conf.xml", home.asJava))
+        try {
+          val config : Configuration =
+            if(confFile.isAbsolute() && Files.exists(confFile)) {
+              new Configuration(confFile.toAbsolutePath().toString())
+            } else {
+              new Configuration(FileUtils.fileName(confFile), home.asJava)
+            }
 
-        val config : Configuration =
-          if(confFile.isAbsolute() && Files.exists(confFile)) {
-            new Configuration(confFile.toAbsolutePath().toString())
-          } else {
-            new Configuration(FileUtils.fileName(confFile), home.asJava)
+
+          // override any specified config properties
+          for(
+              cfg <- configProperties;
+              entry <- cfg.entrySet().asScala) {
+            config.setProperty(entry.getKey.toString, entry.getValue)
           }
 
+          if(useTemporaryStorage) {
+            this.temporaryStorage = Option(Files.createTempDirectory("org.exist.test.ExistEmbeddedServer"))
+            config.setProperty(ScalaBrokerPoolBridge.PROPERTY_DATA_DIR, temporaryStorage.get)
+            config.setProperty(Journal.RECOVERY_JOURNAL_DIR_ATTRIBUTE, temporaryStorage.get)
+            System.out.println("Using temporary storage location: " + temporaryStorage.get.toAbsolutePath().toString())
+          }
 
-        // override any specified config properties
-        for(
-            cfg <- configProperties;
-            entry <- cfg.entrySet().asScala) {
-          config.setProperty(entry.getKey.toString, entry.getValue)
+          ScalaBrokerPoolBridge.configure(name, 1, 5, config, JOptional.empty())
+          activePool = Some(ScalaBrokerPoolBridge.getInstance(name))
+        } catch {
+          case t: Throwable =>
+            cleanupTemporaryStorage()
+            restoreAutoDeploy()
+            throw t
         }
-
-        if(useTemporaryStorage) {
-          this.temporaryStorage = Option(Files.createTempDirectory("org.exist.test.ExistEmbeddedServer"))
-          config.setProperty(ScalaBrokerPoolBridge.PROPERTY_DATA_DIR, temporaryStorage.get)
-          config.setProperty(Journal.RECOVERY_JOURNAL_DIR_ATTRIBUTE, temporaryStorage.get)
-          System.out.println("Using temporary storage location: " + temporaryStorage.get.toAbsolutePath().toString())
-        }
-
-        ScalaBrokerPoolBridge.configure(name, 1, 5, config, JOptional.empty())
-        activePool = Some(ScalaBrokerPoolBridge.getInstance(name))
     }
   }
 
@@ -147,26 +154,33 @@ trait ExistServerStartStopHelper {
   def stopDb() {
     activePool match {
       case None =>
-        throw new IllegalStateException("ExistEmbeddedServer already stopped")
+        cleanupTemporaryStorage()
+        restoreAutoDeploy()
 
       case Some(pool) =>
         pool.shutdown()
 
         // clear instance variables
         activePool = None
+        cleanupTemporaryStorage()
+        restoreAutoDeploy()
+    }
+  }
 
-        temporaryStorage match {
-          case Some(tempStrorage) =>
-            FileUtils.deleteQuietly(tempStrorage)
-            temporaryStorage = None
+  private def cleanupTemporaryStorage(): Unit = {
+    temporaryStorage match {
+      case Some(tempStrorage) =>
+        FileUtils.deleteQuietly(tempStrorage)
+        temporaryStorage = None
 
-          case None =>
-        }
+      case None =>
+    }
+  }
 
-        if(disableAutoDeploy) {
-          //set the autodeploy trigger enablement back to how it was before this test class
-          System.setProperty(AUTODEPLOY_PROPERTY, prevAutoDeploy.getOrElse("off"))
-        }
+  private def restoreAutoDeploy(): Unit = {
+    if(disableAutoDeploy) {
+      //set the autodeploy trigger enablement back to how it was before this test class
+      System.setProperty(AUTODEPLOY_PROPERTY, prevAutoDeploy.getOrElse("off"))
     }
   }
 }

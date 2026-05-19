@@ -132,6 +132,7 @@ object IndexLocalStoreActor {
 class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusStore: IndexingStatusStore) extends Actor {
   def this(indexesDir: Path, indexName: String) = this(indexesDir, indexName, IndexingStatusStore.noop)
 
+  private lazy val logger = Logger(classOf[IndexLocalStoreActor])
   private val localIndexStoreDir = indexesDir.resolve(indexName)
   private var processing: Map[DocumentId, Timestamp] = Map.empty
   private var perDocumentActors: Map[DocumentId, ActorRef] = Map.empty
@@ -210,9 +211,16 @@ class IndexLocalStoreActor(indexesDir: Path, indexName: String, indexingStatusSt
   private def rootObjectsByCollectionTree(timestampDir: Path, collectionPath: CollectionPath): Seq[Path] = {
     def matchesCollectionPathRoot(rootObjectPath: Path): Boolean = {
       val objectMapper = new ObjectMapper()
-      val tree = objectMapper.readTree(rootObjectPath.toFile)
-      val rootObjectCollectionPath = Option(tree.get(COLLECTION_PATH_FIELD_NAME)).flatMap(node => Option(node.asText))
-      rootObjectCollectionPath.exists(IndexLocalStoreManagerActor.collectionPathMatchesTree(collectionPath, _))
+      Try(objectMapper.readTree(rootObjectPath.toFile)) match {
+        case Success(tree) =>
+          val rootObjectCollectionPath = Option(tree.get(COLLECTION_PATH_FIELD_NAME)).flatMap(node => Option(node.asText))
+          rootObjectCollectionPath.exists(IndexLocalStoreManagerActor.collectionPathMatchesTree(collectionPath, _))
+        case Failure(_) if !Files.exists(rootObjectPath) =>
+          logger.debug(s"Skipping disappeared local-store object during collection removal scan: $rootObjectPath")
+          false
+        case Failure(t) =>
+          throw t
+      }
     }
 
     Using(Files.list(timestampDir)) { timestampDirStream =>
