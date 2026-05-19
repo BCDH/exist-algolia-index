@@ -179,17 +179,70 @@ algolia_collection_sync_report_json() {
   local indexes_root=$1
   local index_name=$2
   local collection_path=$3
+  local status_json_path=${4:-}
 
   require_cmd python3
   require_algolia_credentials
 
-  python3 "${ROOT_DIR}/scripts/algolia_collection_sync.py" \
-    report \
-    --indexes-root "${indexes_root}" \
-    --index "${index_name}" \
-    --collection-path "${collection_path}" \
-    --app-id "${ALGOLIA_APPLICATION_ID}" \
+  algolia_collection_sync_python report "${indexes_root}" "${index_name}" "${collection_path}" "${status_json_path}"
+}
+
+algolia_collection_sync_inspect_json() {
+  local indexes_root=$1
+  local index_name=$2
+  local collection_path=$3
+  local status_json_path=${4:-}
+
+  require_cmd python3
+  require_algolia_credentials
+
+  algolia_collection_sync_python inspect "${indexes_root}" "${index_name}" "${collection_path}" "${status_json_path}"
+}
+
+algolia_collection_sync_replay_json() {
+  local indexes_root=$1
+  local index_name=$2
+  local collection_path=$3
+
+  require_cmd python3
+  require_algolia_credentials
+
+  algolia_collection_sync_python replay "${indexes_root}" "${index_name}" "${collection_path}"
+}
+
+algolia_collection_sync_refresh_status_json() {
+  local indexes_root=$1
+  local index_name=$2
+  local collection_path=$3
+  local status_json_path=$4
+
+  require_cmd python3
+  require_algolia_credentials
+
+  algolia_collection_sync_python refresh-status "${indexes_root}" "${index_name}" "${collection_path}" "${status_json_path}"
+}
+
+algolia_collection_sync_python() {
+  local command=$1
+  local indexes_root=$2
+  local index_name=$3
+  local collection_path=$4
+  local status_json_path=${5:-}
+  local -a args=(
+    "${ROOT_DIR}/scripts/algolia_collection_sync.py"
+    "${command}"
+    --indexes-root "${indexes_root}"
+    --index "${index_name}"
+    --collection-path "${collection_path}"
+    --app-id "${ALGOLIA_APPLICATION_ID}"
     --api-key "${ALGOLIA_ADMIN_API_KEY}"
+  )
+
+  if [[ -n "${status_json_path}" ]]; then
+    args+=(--status-json-path "${status_json_path}")
+  fi
+
+  python3 "${args[@]}"
 }
 
 algolia_collection_sync_json_field() {
@@ -234,9 +287,15 @@ summarize_xquery_file_module_error() {
 
 print_algolia_collection_sync_report() {
   local report_json=$1
-  local reconcile_hint=${2:-}
+  local inspect_hint=${2:-}
+  local replay_hint=${3:-}
+  local refresh_status_hint=${4:-}
 
-  REPORT_JSON="${report_json}" RECONCILE_HINT="${reconcile_hint}" python3 - <<'PY'
+  REPORT_JSON="${report_json}" \
+  INSPECT_HINT="${inspect_hint}" \
+  REPLAY_HINT="${replay_hint}" \
+  REFRESH_STATUS_HINT="${refresh_status_hint}" \
+    python3 - <<'PY'
 import json
 import os
 
@@ -249,24 +308,62 @@ print(
     f"missing-in-live={report['missingInLiveCount']} "
     f"unexpected-in-live={report['unexpectedInLiveCount']}"
 )
-if report["sampleMissingInLive"]:
+if report.get("sampleMissingInLive"):
     print("Sample missing-in-live: " + ", ".join(report["sampleMissingInLive"]))
-if report["sampleUnexpectedInLive"]:
+if report.get("sampleUnexpectedInLive"):
     print("Sample unexpected-in-live: " + ", ".join(report["sampleUnexpectedInLive"]))
-if not report["synced"] and os.environ.get("RECONCILE_HINT"):
-    print("Recommended reconcile command: " + os.environ["RECONCILE_HINT"] + " " + report["collectionPath"])
+if report.get("sampleWrongPathLive"):
+    print("Sample wrong-path-live: " + ", ".join(report["sampleWrongPathLive"]))
+print("Classification: " + report.get("classification", "mismatch"))
+if report.get("liveCountByCollection"):
+    print("Live count by collection:")
+    for collection, count in report["liveCountByCollection"].items():
+        print(f"  {collection}: {count}")
+if report.get("wrongPathLiveCountByCollection"):
+    print("Wrong-path live count by collection:")
+    for collection, count in report["wrongPathLiveCountByCollection"].items():
+        print(f"  {collection}: {count}")
+
+classification = report.get("classification", "mismatch")
+collection = report["collectionPath"]
+
+if classification == "stale_status" and os.environ.get("REFRESH_STATUS_HINT"):
+    print("Recommended status refresh: " + os.environ["REFRESH_STATUS_HINT"] + " " + collection)
+elif classification != "synced":
+    if os.environ.get("INSPECT_HINT"):
+        print("Read-only diagnosis: " + os.environ["INSPECT_HINT"] + " " + collection)
+    if os.environ.get("REPLAY_HINT"):
+        print(
+            "Safe replay repair: "
+            + os.environ["REPLAY_HINT"]
+            + " "
+            + collection
+            + f"  # deletes {report.get('replayDeleteCount', '?')} live object(s), uploads {report.get('replayUploadCount', '?')} object(s)"
+        )
 PY
 }
 
 run_collection_sync_verification() {
   local collection_path=$1
   local report_callback=$2
-  local reconcile_hint=${3:-}
+  local inspect_hint=${3:-}
+  local replay_hint=${4:-}
+  local refresh_status_hint=${5:-}
   local report_json
 
   report_json=$("${report_callback}" "${collection_path}")
-  print_algolia_collection_sync_report "${report_json}" "${reconcile_hint}"
+  print_algolia_collection_sync_report "${report_json}" "${inspect_hint}" "${replay_hint}" "${refresh_status_hint}"
   [[ "$(algolia_collection_sync_json_field "${report_json}" synced)" == "true" ]]
+}
+
+require_dangerous_reconcile_override() {
+  local label=${1:-This command}
+  if [[ "${EXIST_ALGOLIA_ALLOW_DANGEROUS_RECONCILE:-0}" != "1" ]]; then
+    echo "${label} mutates the local-store snapshot and is disabled by default." >&2
+    echo "Use inspect-collection-sync first, then prefer replay-collection-live." >&2
+    echo "Set EXIST_ALGOLIA_ALLOW_DANGEROUS_RECONCILE=1 only for an explicit exceptional case." >&2
+    return 1
+  fi
 }
 
 run_collection_sync_reconcile_flow() {
@@ -344,6 +441,12 @@ quarantine_local_store_dirs_on_host() {
   fi
   echo "Quarantined document dirs: ${doc_dirs[*]}"
 
+  if ! [[ -d "${host_data_dir}/algolia-index/indexes/${index_name}" && -w "${host_data_dir}/algolia-index/indexes/${index_name}" ]]; then
+    echo "Host-mounted local-store quarantine is not writable: ${host_data_dir}/algolia-index/indexes/${index_name}" >&2
+    return 1
+  fi
+  ensure_dir "${host_data_dir}/algolia-index/quarantine/${index_name}"
+
   set +e
   HOST_DATA_DIR="${host_data_dir}" \
   INDEX_NAME="${index_name}" \
@@ -353,6 +456,7 @@ quarantine_local_store_dirs_on_host() {
 import os
 import pathlib
 import shutil
+import sys
 
 host_data_dir = pathlib.Path(os.environ["HOST_DATA_DIR"])
 index_name = os.environ["INDEX_NAME"]
@@ -363,14 +467,27 @@ index_dir = host_data_dir / "algolia-index" / "indexes" / index_name
 quarantine_dir = host_data_dir / "algolia-index" / "quarantine" / index_name / quarantine_name
 quarantine_dir.mkdir(parents=True, exist_ok=True)
 
+planned_moves = []
+
 for doc_dir in doc_dirs:
     source = index_dir / doc_dir
     target = quarantine_dir / doc_dir
     if source.exists():
-        shutil.move(str(source), str(target))
-        print(f"<dir name=\"{doc_dir}\" moved=\"true\" source=\"{source}\" target=\"{target}\"/>")
+        planned_moves.append((doc_dir, source, target))
     else:
         print(f"<dir name=\"{doc_dir}\" moved=\"false\" reason=\"missing-source\" source=\"{source}\" target=\"{target}\"/>")
+
+for doc_dir, source, target in planned_moves:
+    if target.exists():
+        print(
+            f"Refusing host quarantine because target already exists for {doc_dir}: {target}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+for doc_dir, source, target in planned_moves:
+    shutil.move(str(source), str(target))
+    print(f"<dir name=\"{doc_dir}\" moved=\"true\" source=\"{source}\" target=\"{target}\"/>")
 PY
   local python_status=$?
   set -e

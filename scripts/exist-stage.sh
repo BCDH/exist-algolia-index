@@ -29,8 +29,14 @@ Commands:
                   Reindex one configured collection on the remote eXist host.
   verify-collection-sync
                   Compare live Algolia records with the remote local-store snapshot.
+  inspect-collection-sync
+                  Print read-only sync classification, per-collection counts, and replay blast radius.
+  replay-collection-live
+                  Delete only matching live records and republish this collection from the local store.
+  refresh-indexing-status
+                  Rewrite status.json for a synced collection when the status file is stale or incomplete.
   reconcile-collection
-                  Quarantine matching remote local-store snapshots, reindex, and verify convergence.
+                  Dangerous fallback: mutate remote local-store snapshots, reindex, and verify convergence.
   run              Alias for deploy; reindexes by default after successful install.
   help             Show this help message.
 
@@ -309,7 +315,10 @@ run_remote_helper() {
   remote_env+=("ALGOLIA_SMOKE_INDEX_NAME=${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-}")
   remote_env+=("EXIST_REINDEX_COLLECTION=${EXIST_STAGE_REINDEX_COLLECTION:-}")
   remote_env+=("EXIST_SKIP_REINDEX=${skip_reindex}")
-  remote_env+=("EXIST_SYNC_HINT_PREFIX=${EXIST_SYNC_HINT_PREFIX:-scripts/exist-stage.sh reconcile-collection}")
+  remote_env+=("EXIST_SYNC_INSPECT_HINT_PREFIX=${EXIST_SYNC_INSPECT_HINT_PREFIX:-scripts/exist-stage.sh inspect-collection-sync}")
+  remote_env+=("EXIST_SYNC_REPLAY_HINT_PREFIX=${EXIST_SYNC_REPLAY_HINT_PREFIX:-scripts/exist-stage.sh replay-collection-live}")
+  remote_env+=("EXIST_SYNC_REFRESH_STATUS_HINT_PREFIX=${EXIST_SYNC_REFRESH_STATUS_HINT_PREFIX:-scripts/exist-stage.sh refresh-indexing-status}")
+  remote_env+=("EXIST_ALGOLIA_ALLOW_DANGEROUS_RECONCILE=${EXIST_ALGOLIA_ALLOW_DANGEROUS_RECONCILE:-0}")
   remote_env+=("LOCAL_STORE_DOCKER_HELPER_IMAGE=${LOCAL_STORE_DOCKER_HELPER_IMAGE:-busybox:latest}")
 
   remote_args+=(bash "${remote_script}" "${remote_command}")
@@ -319,7 +328,7 @@ run_remote_helper() {
         remote_args+=("${collection_path}")
       fi
       ;;
-    reindex-collection|verify-collection-sync)
+    reindex-collection|verify-collection-sync|inspect-collection-sync|replay-collection-live|refresh-indexing-status)
       remote_args+=("${collection_path}")
       ;;
     reconcile-collection)
@@ -406,6 +415,51 @@ verify_remote_collection_sync() {
   run_remote_helper verify-collection-sync "${collection_path}"
 }
 
+inspect_remote_collection_sync() {
+  local collection_path=$1
+
+  require_stage_prereqs
+  require_stage_target
+  require_stage_secrets
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+    exit 1
+  fi
+  prepare_remote_tree
+  upload_helper_files
+  run_remote_helper inspect-collection-sync "${collection_path}"
+}
+
+replay_remote_collection_live() {
+  local collection_path=$1
+
+  require_stage_prereqs
+  require_stage_target
+  require_stage_secrets
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+    exit 1
+  fi
+  prepare_remote_tree
+  upload_helper_files
+  run_remote_helper replay-collection-live "${collection_path}"
+}
+
+refresh_remote_indexing_status() {
+  local collection_path=$1
+
+  require_stage_prereqs
+  require_stage_target
+  require_stage_secrets
+  if [[ -z "${collection_path}" ]]; then
+    echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+    exit 1
+  fi
+  prepare_remote_tree
+  upload_helper_files
+  run_remote_helper refresh-indexing-status "${collection_path}"
+}
+
 reconcile_remote_collection() {
   local collection_path=$1
   local force=$2
@@ -469,6 +523,15 @@ main() {
       ;;
     verify-collection-sync)
       verify_remote_collection_sync "${collection_path}"
+      ;;
+    inspect-collection-sync)
+      inspect_remote_collection_sync "${collection_path}"
+      ;;
+    replay-collection-live)
+      replay_remote_collection_live "${collection_path}"
+      ;;
+    refresh-indexing-status)
+      refresh_remote_indexing_status "${collection_path}"
       ;;
     reconcile-collection)
       reconcile_remote_collection "${collection_path}" "${force}"

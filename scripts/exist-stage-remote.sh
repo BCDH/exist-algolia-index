@@ -24,8 +24,14 @@ Commands:
   reindex-collection Reindex one configured collection to backfill Algolia.
   verify-collection-sync
                     Compare live Algolia records with the container local-store snapshot.
+  inspect-collection-sync
+                    Print read-only sync classification, per-collection counts, and replay blast radius.
+  replay-collection-live
+                    Delete only matching live records and republish this collection from the local store.
+  refresh-indexing-status
+                    Rewrite status.json for a synced collection when the status file is stale or incomplete.
   reconcile-collection
-                    Quarantine matching local-store snapshots, reindex, and verify convergence.
+                    Dangerous fallback: mutate local-store snapshots, reindex, and verify convergence.
   restart            Restart the eXist container or run EXIST_STAGE_RESTART_CMD.
   verify             Verify install state and run the smoke reindex check.
   run                Execute the full staging install flow and reindex by default.
@@ -524,6 +530,34 @@ verify_remote_indexing_status() {
 
 remote_collection_sync_report() {
   local collection_path=$1
+  local data_dir host_data_dir tmp_dir indexes_root container_index_dir status_json_path=""
+
+  require_collection_path "${collection_path}"
+  require_container_running
+
+  data_dir=$(resolve_remote_data_dir)
+  if host_data_dir=$(resolve_remote_host_data_dir); then
+    indexes_root="${host_data_dir}/algolia-index/indexes"
+    status_json_path="${host_data_dir}/algolia-index/status.json"
+  else
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+    indexes_root="${tmp_dir}/indexes"
+    mkdir -p "${indexes_root}"
+    container_index_dir="${data_dir}/algolia-index/indexes/${ALGOLIA_SYNC_INDEX_NAME}"
+    docker cp "${EXISTDB_CONTAINER_NAME}:${container_index_dir}" "${indexes_root}/" >/dev/null 2>&1 || true
+  fi
+  algolia_collection_sync_report_json "${indexes_root}" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}" "${status_json_path}"
+}
+
+inspect_collection_sync() {
+  local collection_path=$1
+
+  remote_collection_sync_report "${collection_path}" | cat
+}
+
+replay_collection_live() {
+  local collection_path=$1
   local data_dir host_data_dir tmp_dir indexes_root container_index_dir
 
   require_collection_path "${collection_path}"
@@ -540,7 +574,26 @@ remote_collection_sync_report() {
     container_index_dir="${data_dir}/algolia-index/indexes/${ALGOLIA_SYNC_INDEX_NAME}"
     docker cp "${EXISTDB_CONTAINER_NAME}:${container_index_dir}" "${indexes_root}/" >/dev/null 2>&1 || true
   fi
-  algolia_collection_sync_report_json "${indexes_root}" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}"
+
+  algolia_collection_sync_replay_json "${indexes_root}" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}"
+}
+
+refresh_indexing_status() {
+  local collection_path=$1
+  local host_data_dir
+
+  require_collection_path "${collection_path}"
+  require_container_running
+  if ! host_data_dir=$(resolve_remote_host_data_dir); then
+    echo "Remote status refresh requires a host-mounted data directory." >&2
+    return 1
+  fi
+
+  algolia_collection_sync_refresh_status_json \
+    "${host_data_dir}/algolia-index/indexes" \
+    "${ALGOLIA_SYNC_INDEX_NAME}" \
+    "${collection_path}" \
+    "${host_data_dir}/algolia-index/status.json"
 }
 
 remote_quarantine_collection_store() {
@@ -555,13 +608,19 @@ remote_quarantine_collection_store() {
 
 verify_collection_sync() {
   local collection_path=$1
-  run_collection_sync_verification "${collection_path}" remote_collection_sync_report "${EXIST_SYNC_HINT_PREFIX:-scripts/exist-stage.sh reconcile-collection}"
+  run_collection_sync_verification \
+    "${collection_path}" \
+    remote_collection_sync_report \
+    "${EXIST_SYNC_INSPECT_HINT_PREFIX:-scripts/exist-stage.sh inspect-collection-sync}" \
+    "${EXIST_SYNC_REPLAY_HINT_PREFIX:-scripts/exist-stage.sh replay-collection-live}" \
+    "${EXIST_SYNC_REFRESH_STATUS_HINT_PREFIX:-scripts/exist-stage.sh refresh-indexing-status}"
 }
 
 reconcile_collection_sync() {
   local collection_path=$1
   local force=$2
 
+  require_dangerous_reconcile_override "Stage reconcile-collection"
   run_collection_sync_reconcile_flow \
     "${collection_path}" \
     remote_collection_sync_report \
@@ -691,6 +750,21 @@ main() {
       require_prereqs
       require_secrets
       verify_collection_sync "${collection_path}"
+      ;;
+    inspect-collection-sync)
+      require_prereqs
+      require_secrets
+      inspect_collection_sync "${collection_path}"
+      ;;
+    replay-collection-live)
+      require_prereqs
+      require_secrets
+      replay_collection_live "${collection_path}"
+      ;;
+    refresh-indexing-status)
+      require_prereqs
+      require_secrets
+      refresh_indexing_status "${collection_path}"
       ;;
     reconcile-collection)
       require_prereqs

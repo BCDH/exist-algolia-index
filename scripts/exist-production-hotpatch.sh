@@ -23,8 +23,14 @@ Commands:
   reindex-collection  Reindex one configured production collection.
   verify-collection-sync
                       Compare live Algolia records with the production local-store snapshot.
+  inspect-collection-sync
+                      Print read-only sync classification, per-collection counts, and replay blast radius.
+  replay-collection-live
+                      Delete only matching live records and republish this collection from the local store.
+  refresh-indexing-status
+                      Rewrite status.json for a synced collection when the status file is stale or incomplete.
   reconcile-collection
-                      Quarantine matching production local-store snapshots, reindex, and verify convergence.
+                      Dangerous fallback: mutate production local-store snapshots, reindex, and verify convergence.
   help                Show this help message.
 
 Options:
@@ -107,7 +113,9 @@ export_stage_compat_env() {
   export EXIST_STAGE_ALGOLIA_ADMIN_API_KEY="${EXIST_PRODUCTION_ALGOLIA_ADMIN_API_KEY:-}"
   export EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME="${EXIST_PRODUCTION_ALGOLIA_SMOKE_INDEX_NAME}"
   export EXIST_STAGE_REINDEX_COLLECTION="${EXIST_PRODUCTION_REINDEX_COLLECTION:-}"
-  export EXIST_SYNC_HINT_PREFIX="scripts/exist-production-hotpatch.sh reconcile-collection"
+  export EXIST_SYNC_INSPECT_HINT_PREFIX="scripts/exist-production-hotpatch.sh inspect-collection-sync"
+  export EXIST_SYNC_REPLAY_HINT_PREFIX="scripts/exist-production-hotpatch.sh replay-collection-live"
+  export EXIST_SYNC_REFRESH_STATUS_HINT_PREFIX="scripts/exist-production-hotpatch.sh refresh-indexing-status"
 }
 
 run_stage_wrapper() {
@@ -204,10 +212,47 @@ main() {
       fi
       run_stage_wrapper verify-collection-sync "${collection_path}"
       ;;
-    reconcile-collection)
+    inspect-collection-sync)
       require_production_target
       require_production_secrets
       export_stage_compat_env
+      if [[ -z "${collection_path}" ]]; then
+        echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+        return 1
+      fi
+      run_stage_wrapper inspect-collection-sync "${collection_path}"
+      ;;
+    replay-collection-live)
+      require_production_target
+      require_production_secrets
+      export_stage_compat_env
+      if [[ -z "${collection_path}" ]]; then
+        echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+        return 1
+      fi
+      run_stage_wrapper replay-collection-live "${collection_path}"
+      ;;
+    refresh-indexing-status)
+      require_production_target
+      require_production_secrets
+      export_stage_compat_env
+      if [[ -z "${collection_path}" ]]; then
+        echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
+        return 1
+      fi
+      run_stage_wrapper refresh-indexing-status "${collection_path}"
+      ;;
+    reconcile-collection)
+      echo "Production reconcile-collection is disabled by default." >&2
+      echo "Use inspect-collection-sync first, then prefer replay-collection-live or refresh-indexing-status." >&2
+      if [[ "${EXIST_PRODUCTION_ALLOW_DANGEROUS_RECONCILE:-0}" != "1" ]]; then
+        echo "Set EXIST_PRODUCTION_ALLOW_DANGEROUS_RECONCILE=1 only for an explicit exceptional recovery case." >&2
+        return 1
+      fi
+      require_production_target
+      require_production_secrets
+      export_stage_compat_env
+      export EXIST_ALGOLIA_ALLOW_DANGEROUS_RECONCILE=1
       if [[ -z "${collection_path}" ]]; then
         echo "A collection path is required, e.g. /db/apps/raskovnik-data/data/GE.RKMD" >&2
         return 1

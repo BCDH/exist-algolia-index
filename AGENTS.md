@@ -96,11 +96,21 @@ Local and staging helper verification should fail when `status.json` contains `d
 In addition to `status.json`, the helper scripts now expose explicit live-vs-local verification and recovery commands:
 
 - `verify-collection-sync /db/apps/raskovnik-data/data/<DICT_ID>`
-- `reconcile-collection /db/apps/raskovnik-data/data/<DICT_ID>`
+- `inspect-collection-sync /db/apps/raskovnik-data/data/<DICT_ID>`
+- `replay-collection-live /db/apps/raskovnik-data/data/<DICT_ID>`
+- `refresh-indexing-status /db/apps/raskovnik-data/data/<DICT_ID>`
+- `reconcile-collection /db/apps/raskovnik-data/data/<DICT_ID>` as an exceptional fallback only
 
-Use them when you suspect silent divergence between live Algolia and the local store. Normal reindex is not a guaranteed recovery path once those two states drift apart because the incremental diff still trusts the local snapshot.
+Operator safety contract after the production incident:
 
-`reconcile-collection` quarantines matching local-store document directories under `algolia-index/quarantine/<index>/<timestamp>__<collection-slug>/`, reruns `xmldb:reindex(...)`, and re-verifies until sync converges or times out. Those quarantine directories are intentional forensic backups; do not delete them automatically during the command.
+- Never mutate stage or production Algolia before read-only diagnosis.
+- `verify-collection-sync` and `inspect-collection-sync` come first.
+- If live/local sync is clean but `status.json` is stale or incomplete, use `refresh-indexing-status`.
+- If live records drifted under the wrong collection path or live records are missing while the local store is healthy, use `replay-collection-live`.
+- Do not treat `reconcile-collection` as the routine next step. It mutates the local store and is disabled by default for production.
+- Never copy local-store snapshots from macOS or a workstation without stripping `._*`, `.DS_Store`, and similar sidecar files first.
+
+`reconcile-collection` still quarantines matching local-store document directories under `algolia-index/quarantine/<index>/<timestamp>__<collection-slug>/`, reruns `xmldb:reindex(...)`, and re-verifies until sync converges or times out. Those quarantine directories are intentional forensic backups; do not delete them automatically during the command.
 
 ## Raskovnik Staging Notes
 

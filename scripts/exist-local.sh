@@ -30,8 +30,14 @@ Commands:
   reindex-collection Reindex one configured collection to backfill Algolia.
   verify-collection-sync
                     Compare live Algolia records with the local-store snapshot.
+  inspect-collection-sync
+                    Print read-only sync classification, per-collection counts, and replay blast radius.
+  replay-collection-live
+                    Delete only matching live records and republish this collection from the local store.
+  refresh-indexing-status
+                    Rewrite status.json for a synced collection when the status file is stale or incomplete.
   reconcile-collection
-                    Quarantine local-store snapshots for one collection, reindex, and verify convergence.
+                    Dangerous fallback: mutate local-store snapshots, reindex, and verify convergence.
   restart            Restart eXist using EXIST_RESTART_CMD if configured.
   verify             Verify install state and run the smoke reindex check.
   run                Build, install, configure, restart if configured, verify, then reindex.
@@ -406,7 +412,34 @@ local_collection_sync_report() {
 
   require_collection_path "${collection_path}"
   data_dir=$(resolve_local_data_dir)
-  algolia_collection_sync_report_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}"
+  algolia_collection_sync_report_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}" "${data_dir}/algolia-index/status.json"
+}
+
+inspect_collection_sync() {
+  local collection_path=$1
+  local data_dir
+
+  require_collection_path "${collection_path}"
+  data_dir=$(resolve_local_data_dir)
+  algolia_collection_sync_inspect_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}" "${data_dir}/algolia-index/status.json"
+}
+
+replay_collection_live() {
+  local collection_path=$1
+  local data_dir
+
+  require_collection_path "${collection_path}"
+  data_dir=$(resolve_local_data_dir)
+  algolia_collection_sync_replay_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}"
+}
+
+refresh_indexing_status() {
+  local collection_path=$1
+  local data_dir
+
+  require_collection_path "${collection_path}"
+  data_dir=$(resolve_local_data_dir)
+  algolia_collection_sync_refresh_status_json "${data_dir}/algolia-index/indexes" "${ALGOLIA_SYNC_INDEX_NAME}" "${collection_path}" "${data_dir}/algolia-index/status.json"
 }
 
 local_quarantine_collection_store() {
@@ -420,7 +453,12 @@ local_quarantine_collection_store() {
 
 verify_collection_sync() {
   local collection_path=$1
-  run_collection_sync_verification "${collection_path}" local_collection_sync_report "scripts/exist-local.sh reconcile-collection"
+  run_collection_sync_verification \
+    "${collection_path}" \
+    local_collection_sync_report \
+    "scripts/exist-local.sh inspect-collection-sync" \
+    "scripts/exist-local.sh replay-collection-live" \
+    "scripts/exist-local.sh refresh-indexing-status"
 }
 
 reconcile_collection_sync() {
@@ -428,6 +466,7 @@ reconcile_collection_sync() {
   local force=$2
 
   require_local_admin
+  require_dangerous_reconcile_override "Local reconcile-collection"
   run_collection_sync_reconcile_flow \
     "${collection_path}" \
     local_collection_sync_report \
@@ -601,6 +640,15 @@ main() {
       ;;
     verify-collection-sync)
       verify_collection_sync "${collection_path}"
+      ;;
+    inspect-collection-sync)
+      inspect_collection_sync "${collection_path}"
+      ;;
+    replay-collection-live)
+      replay_collection_live "${collection_path}"
+      ;;
+    refresh-indexing-status)
+      refresh_indexing_status "${collection_path}"
       ;;
     reconcile-collection)
       reconcile_collection_sync "${collection_path}" "${force}"

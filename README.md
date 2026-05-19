@@ -157,19 +157,38 @@ The check reads the latest local-store snapshot per document directory, filters 
 - live count
 - missing-in-live count
 - unexpected-in-live count
+- wrong-path live count
+- per-collection live counts
 - small sample mismatches
+- a sync classification and the blast radius for a safe replay
 
-If the command reports a mismatch, use the explicit reconcile flow:
+For deeper read-only diagnosis:
 
 ```sh
-./scripts/exist-local.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
-./scripts/exist-stage.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
-./scripts/exist-production-hotpatch.sh reconcile-collection /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-local.sh inspect-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh inspect-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-production-hotpatch.sh inspect-collection-sync /db/apps/raskovnik-data/data/MBRT.RDG
 ```
 
-Add `--force` if you want to reindex even when verification already reports a clean match.
+If the local store is healthy and live Algolia drifted or lost records, prefer the safe replay flow:
 
-Reconcile does not modify the local store in place. Instead it:
+```sh
+./scripts/exist-local.sh replay-collection-live /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh replay-collection-live /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-production-hotpatch.sh replay-collection-live /db/apps/raskovnik-data/data/MBRT.RDG
+```
+
+If live/local sync is already clean but `status.json` is stale or incomplete, refresh the status file directly:
+
+```sh
+./scripts/exist-local.sh refresh-indexing-status /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-stage.sh refresh-indexing-status /db/apps/raskovnik-data/data/MBRT.RDG
+./scripts/exist-production-hotpatch.sh refresh-indexing-status /db/apps/raskovnik-data/data/MBRT.RDG
+```
+
+`reconcile-collection` remains available only as an explicit exceptional fallback. It mutates the local store, is disabled by default for production, and should not be the routine next step after divergence.
+
+When intentionally used, reconcile:
 
 - verifies the collection first
 - no-ops when already synced unless `--force` is used
