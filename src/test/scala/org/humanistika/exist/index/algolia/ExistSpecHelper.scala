@@ -27,6 +27,7 @@
 package org.humanistika.exist.index.algolia
 
 import java.io.IOException
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import java.util.{Properties, Optional => JOptional}
 import java.util.UUID
@@ -97,8 +98,20 @@ trait ExistServerStartStopHelper {
 
         val name = instanceName.getOrElse(s"${ScalaBrokerPoolBridge.DEFAULT_INSTANCE_NAME}-${UUID.randomUUID().toString}")
         val home = Option(System.getProperty("exist.home", System.getProperty("user.dir"))).map(Paths.get(_))
-        val confFile = configFile.getOrElse(ConfigurationHelper.lookup("conf.xml", home.asJava))
+        val originalConfFile = configFile.getOrElse(ConfigurationHelper.lookup("conf.xml", home.asJava))
         try {
+          if(useTemporaryStorage) {
+            this.temporaryStorage = Option(Files.createTempDirectory("org.exist.test.ExistEmbeddedServer"))
+            System.out.println("Using temporary storage location: " + temporaryStorage.get.toAbsolutePath().toString())
+          }
+
+          val confFile =
+            if (useTemporaryStorage && originalConfFile.isAbsolute && Files.exists(originalConfFile)) {
+              prepareTemporaryConfig(originalConfFile, temporaryStorage.get)
+            } else {
+              originalConfFile
+            }
+
           val config : Configuration =
             if(confFile.isAbsolute() && Files.exists(confFile)) {
               new Configuration(confFile.toAbsolutePath().toString())
@@ -115,10 +128,8 @@ trait ExistServerStartStopHelper {
           }
 
           if(useTemporaryStorage) {
-            this.temporaryStorage = Option(Files.createTempDirectory("org.exist.test.ExistEmbeddedServer"))
             config.setProperty(ScalaBrokerPoolBridge.PROPERTY_DATA_DIR, temporaryStorage.get)
             config.setProperty(Journal.RECOVERY_JOURNAL_DIR_ATTRIBUTE, temporaryStorage.get)
-            System.out.println("Using temporary storage location: " + temporaryStorage.get.toAbsolutePath().toString())
           }
 
           ScalaBrokerPoolBridge.configure(name, 1, 5, config, JOptional.empty())
@@ -182,6 +193,26 @@ trait ExistServerStartStopHelper {
       //set the autodeploy trigger enablement back to how it was before this test class
       System.setProperty(AUTODEPLOY_PROPERTY, prevAutoDeploy.getOrElse("off"))
     }
+  }
+
+  private def prepareTemporaryConfig(originalConfFile: Path, temporaryDataDir: Path): Path = {
+    val rewritten = rewritePathAttributes(
+      new String(Files.readAllBytes(originalConfFile), StandardCharsets.UTF_8),
+      temporaryDataDir.toAbsolutePath.toString
+    )
+    val tempConfFile = temporaryDataDir.resolve("conf.xml")
+    Files.write(tempConfFile, rewritten.getBytes(StandardCharsets.UTF_8))
+    tempConfFile
+  }
+
+  private def rewritePathAttributes(xml: String, replacementPath: String): String = {
+    val escapedPath = replacementPath
+      .replace("&", "&amp;")
+      .replace("\"", "&quot;")
+
+    xml
+      .replaceFirst("""files="[^"]*"""", s"""files="$escapedPath"""")
+      .replaceFirst("""journal-dir="[^"]*"""", s"""journal-dir="$escapedPath"""")
   }
 }
 
