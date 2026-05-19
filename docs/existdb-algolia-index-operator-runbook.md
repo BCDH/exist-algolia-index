@@ -137,6 +137,10 @@ From the `exist-algolia-index` checkout:
 ./scripts/exist-stage.sh run
 ```
 
+The staging wrapper now uploads the large assembly JAR in internal `8 MiB`
+chunks, reassembles it on the remote host, and verifies size plus SHA-256
+before continuing. Manual chunking workarounds should not be needed anymore.
+
 What this should do:
 
 1. build the assembly JAR
@@ -192,6 +196,9 @@ After a successful install and backfill:
 ## Production Hotpatch
 
 Use `scripts/exist-production-hotpatch.sh` when you need to test a plugin build on the production eXist container before baking it into the default Docker image. This is a live production hotpatch: it uploads the local assembly JAR, installs it into the production container, updates eXist config if needed, restarts production eXist, runs the smoke verification, and reindexes the configured production collection by default.
+
+Production hotpatch uses the same chunked-upload wrapper as staging, so the
+large assembly JAR is transferred in verified `8 MiB` parts automatically.
 
 Set production-specific env names instead of reusing the staging variables:
 

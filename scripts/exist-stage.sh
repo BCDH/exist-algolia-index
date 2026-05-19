@@ -15,6 +15,7 @@ EXIST_STAGE_ALGOLIA_APPLICATION_ID=${EXIST_STAGE_ALGOLIA_APPLICATION_ID:-}
 EXIST_STAGE_ALGOLIA_ADMIN_API_KEY=${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY:-}
 EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME=${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-exist-algolia-index-smoke-staging}
 EXIST_STAGE_REINDEX_COLLECTION=${EXIST_STAGE_REINDEX_COLLECTION:-}
+readonly STAGE_JAR_CHUNK_SIZE=$((8 * 1024 * 1024))
 
 usage() {
   cat <<'EOF'
@@ -74,6 +75,17 @@ copy_to_remote() {
   scp -P "${EXIST_STAGE_PORT}" "$@"
 }
 
+shell_join() {
+  local parts=()
+  local value
+
+  for value in "$@"; do
+    parts+=("$(printf '%q' "${value}")")
+  done
+
+  printf '%s' "${parts[*]}"
+}
+
 require_stage_target() {
   if [[ -z "${EXIST_STAGE_HOST:-}" ]]; then
     echo "EXIST_STAGE_HOST must be set for staging deploys." >&2
@@ -88,6 +100,8 @@ require_stage_target() {
 require_stage_prereqs() {
   require_cmd ssh
   require_cmd scp
+  require_cmd python3
+  require_cmd split
 }
 
 require_stage_secrets() {
@@ -119,16 +133,143 @@ prepare_remote_tree() {
   remote_cmd "mkdir -p $(printf '%q' "${EXIST_STAGE_REMOTE_DIR}/scripts") $(printf '%q' "${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}")"
 }
 
+local_file_sha256() {
+  local path=$1
+
+  python3 - "${path}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+digest = hashlib.sha256()
+with path.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+}
+
+local_file_size() {
+  local path=$1
+
+  python3 - "${path}" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).stat().st_size)
+PY
+}
+
+remote_stage_chunk_dir() {
+  printf '%s/target/scala-%s/.%s.parts' \
+    "${EXIST_STAGE_REMOTE_DIR}" \
+    "${SCALA_BINARY_VERSION}" \
+    "${PLUGIN_JAR_FILENAME}"
+}
+
+remote_stage_jar_path() {
+  printf '%s/target/scala-%s/%s' \
+    "${EXIST_STAGE_REMOTE_DIR}" \
+    "${SCALA_BINARY_VERSION}" \
+    "${PLUGIN_JAR_FILENAME}"
+}
+
+cleanup_remote_chunk_upload() {
+  local remote_chunk_dir=$1
+  local remote_partial_path=$2
+
+  remote_cmd \
+    "rm -rf $(printf '%q' "${remote_chunk_dir}") && rm -f $(printf '%q' "${remote_partial_path}")" \
+    >/dev/null 2>&1 || true
+}
+
+upload_plugin_artifact_chunked() {
+  local tmp_dir remote_chunk_dir remote_jar_path remote_partial_path expected_sha256 expected_size
+  local chunk_prefix
+  local -a chunk_paths=()
+  local chunk_path
+  local remote_target_prefix
+
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "'"${tmp_dir}"'"' RETURN
+
+  remote_chunk_dir=$(remote_stage_chunk_dir)
+  remote_jar_path=$(remote_stage_jar_path)
+  remote_partial_path="${remote_jar_path}.partial"
+  chunk_prefix="${tmp_dir}/${PLUGIN_JAR_FILENAME}.part"
+  expected_sha256=$(local_file_sha256 "${PLUGIN_JAR_PATH}")
+  expected_size=$(local_file_size "${PLUGIN_JAR_PATH}")
+
+  split -b "${STAGE_JAR_CHUNK_SIZE}" -d -a 4 "${PLUGIN_JAR_PATH}" "${chunk_prefix}"
+  for chunk_path in "${chunk_prefix}"*; do
+    chunk_paths+=("${chunk_path}")
+  done
+
+  if [[ ${#chunk_paths[@]} -eq 0 ]]; then
+    echo "Chunked upload did not create any parts for ${PLUGIN_JAR_PATH}" >&2
+    exit 1
+  fi
+
+  echo "[stage] Uploading plugin artifact in ${#chunk_paths[@]} chunk(s)"
+  remote_cmd "mkdir -p $(printf '%q' "${remote_chunk_dir}")"
+  remote_target_prefix="$(remote_target):${remote_chunk_dir}/"
+  if ! copy_to_remote "${chunk_paths[@]}" "${remote_target_prefix}"; then
+    cleanup_remote_chunk_upload "${remote_chunk_dir}" "${remote_partial_path}"
+    exit 1
+  fi
+
+  if ! remote_cmd \
+    "REMOTE_CHUNK_DIR=$(printf '%q' "${remote_chunk_dir}") REMOTE_JAR_PATH=$(printf '%q' "${remote_jar_path}") REMOTE_PARTIAL_PATH=$(printf '%q' "${remote_partial_path}") EXPECTED_SHA256=$(printf '%q' "${expected_sha256}") EXPECTED_SIZE=$(printf '%q' "${expected_size}") python3 -c $(printf '%q' 'import hashlib
+import os
+import pathlib
+import shutil
+import sys
+
+chunk_dir = pathlib.Path(os.environ[\"REMOTE_CHUNK_DIR\"])
+jar_path = pathlib.Path(os.environ[\"REMOTE_JAR_PATH\"])
+partial_path = pathlib.Path(os.environ[\"REMOTE_PARTIAL_PATH\"])
+expected_sha256 = os.environ[\"EXPECTED_SHA256\"]
+expected_size = int(os.environ[\"EXPECTED_SIZE\"])
+parts = sorted(path for path in chunk_dir.iterdir() if path.is_file())
+if not parts:
+    raise SystemExit(f\"No uploaded chunks found in {chunk_dir}\")
+sha256 = hashlib.sha256()
+size = 0
+success = False
+try:
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    with partial_path.open(\"wb\") as destination:
+        for part in parts:
+            with part.open(\"rb\") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b\"\"):
+                    destination.write(chunk)
+                    sha256.update(chunk)
+                    size += len(chunk)
+    digest = sha256.hexdigest()
+    if size != expected_size:
+        raise SystemExit(f\"Uploaded jar size mismatch: expected {expected_size}, got {size}\")
+    if digest != expected_sha256:
+        raise SystemExit(f\"Uploaded jar sha256 mismatch: expected {expected_sha256}, got {digest}\")
+    partial_path.replace(jar_path)
+    success = True
+    print(f\"[stage] Remote jar verified: {jar_path} ({size} bytes, sha256={digest})\")
+finally:
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+    if not success and partial_path.exists():
+        partial_path.unlink()')"; then
+    cleanup_remote_chunk_upload "${remote_chunk_dir}" "${remote_partial_path}"
+    exit 1
+  fi
+}
+
 upload_payload() {
   require_plugin_artifact
 
   echo "[stage] Uploading project metadata"
   upload_helper_files
 
-  echo "[stage] Uploading plugin artifact"
-  copy_to_remote \
-    "${PLUGIN_JAR_PATH}" \
-    "$(remote_target):${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}/${PLUGIN_JAR_FILENAME}"
+  upload_plugin_artifact_chunked
 }
 
 upload_helper_files() {
@@ -153,29 +294,46 @@ run_remote_helper() {
   local skip_reindex=${3:-0}
   local force=${4:-0}
   local remote_script="${EXIST_STAGE_REMOTE_DIR}/scripts/exist-stage-remote.sh"
-  local remote_dir_quoted container_quoted stage_password_quoted app_id_quoted api_key_quoted conf_quoted startup_quoted lib_quoted restart_quoted smoke_index_quoted reindex_quoted skip_reindex_quoted force_quoted hint_prefix_quoted docker_helper_image_quoted
-  local remote_command_quoted collection_path_quoted
+  local remote_command_string
+  local -a remote_env=()
+  local -a remote_args=()
 
-  remote_dir_quoted=$(printf '%q' "${EXIST_STAGE_REMOTE_DIR}")
-  container_quoted=$(printf '%q' "${EXIST_STAGE_CONTAINER_NAME}")
-  stage_password_quoted=$(printf '%q' "${EXIST_STAGE_ADMIN_PASSWORD}")
-  app_id_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_APPLICATION_ID}")
-  api_key_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY}")
-  conf_quoted=$(printf '%q' "${EXIST_STAGE_CONF_XML:-}")
-  startup_quoted=$(printf '%q' "${EXIST_STAGE_STARTUP_XML:-}")
-  lib_quoted=$(printf '%q' "${EXIST_STAGE_PLUGIN_LIB_DIR:-}")
-  restart_quoted=$(printf '%q' "${EXIST_STAGE_RESTART_CMD:-}")
-  smoke_index_quoted=$(printf '%q' "${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-}")
-  reindex_quoted=$(printf '%q' "${EXIST_STAGE_REINDEX_COLLECTION:-}")
-  skip_reindex_quoted=$(printf '%q' "${skip_reindex}")
-  force_quoted=$(printf '%q' "${force}")
-  hint_prefix_quoted=$(printf '%q' "${EXIST_SYNC_HINT_PREFIX:-scripts/exist-stage.sh reconcile-collection}")
-  docker_helper_image_quoted=$(printf '%q' "${LOCAL_STORE_DOCKER_HELPER_IMAGE:-busybox:latest}")
-  remote_command_quoted=$(printf '%q' "${remote_command}")
-  collection_path_quoted=$(printf '%q' "${collection_path}")
+  remote_env+=("EXISTDB_CONTAINER_NAME=${EXIST_STAGE_CONTAINER_NAME}")
+  remote_env+=("EXIST_STAGE_ADMIN_PASSWORD=${EXIST_STAGE_ADMIN_PASSWORD}")
+  remote_env+=("ALGOLIA_APPLICATION_ID=${EXIST_STAGE_ALGOLIA_APPLICATION_ID}")
+  remote_env+=("ALGOLIA_ADMIN_API_KEY=${EXIST_STAGE_ALGOLIA_ADMIN_API_KEY}")
+  remote_env+=("EXIST_STAGE_CONF_XML=${EXIST_STAGE_CONF_XML:-}")
+  remote_env+=("EXIST_STAGE_STARTUP_XML=${EXIST_STAGE_STARTUP_XML:-}")
+  remote_env+=("EXIST_STAGE_PLUGIN_LIB_DIR=${EXIST_STAGE_PLUGIN_LIB_DIR:-}")
+  remote_env+=("EXIST_STAGE_RESTART_CMD=${EXIST_STAGE_RESTART_CMD:-}")
+  remote_env+=("ALGOLIA_SMOKE_INDEX_NAME=${EXIST_STAGE_ALGOLIA_SMOKE_INDEX_NAME:-}")
+  remote_env+=("EXIST_REINDEX_COLLECTION=${EXIST_STAGE_REINDEX_COLLECTION:-}")
+  remote_env+=("EXIST_SKIP_REINDEX=${skip_reindex}")
+  remote_env+=("EXIST_SYNC_HINT_PREFIX=${EXIST_SYNC_HINT_PREFIX:-scripts/exist-stage.sh reconcile-collection}")
+  remote_env+=("LOCAL_STORE_DOCKER_HELPER_IMAGE=${LOCAL_STORE_DOCKER_HELPER_IMAGE:-busybox:latest}")
+
+  remote_args+=(bash "${remote_script}" "${remote_command}")
+  case "${remote_command}" in
+    run)
+      if [[ -n "${collection_path}" ]]; then
+        remote_args+=("${collection_path}")
+      fi
+      ;;
+    reindex-collection|verify-collection-sync)
+      remote_args+=("${collection_path}")
+      ;;
+    reconcile-collection)
+      if [[ "${force}" == "1" ]]; then
+        remote_args+=(--force)
+      fi
+      remote_args+=("${collection_path}")
+      ;;
+  esac
+
+  remote_command_string="cd $(printf '%q' "${EXIST_STAGE_REMOTE_DIR}") && $(shell_join "${remote_env[@]}") $(shell_join "${remote_args[@]}")"
 
   echo "[stage] Executing remote helper on $(remote_target)"
-  remote_cmd "cd ${remote_dir_quoted} && EXISTDB_CONTAINER_NAME=${container_quoted} EXIST_STAGE_ADMIN_PASSWORD=${stage_password_quoted} ALGOLIA_APPLICATION_ID=${app_id_quoted} ALGOLIA_ADMIN_API_KEY=${api_key_quoted} EXIST_STAGE_CONF_XML=${conf_quoted} EXIST_STAGE_STARTUP_XML=${startup_quoted} EXIST_STAGE_PLUGIN_LIB_DIR=${lib_quoted} EXIST_STAGE_RESTART_CMD=${restart_quoted} ALGOLIA_SMOKE_INDEX_NAME=${smoke_index_quoted} EXIST_REINDEX_COLLECTION=${reindex_quoted} EXIST_SKIP_REINDEX=${skip_reindex_quoted} EXIST_SYNC_HINT_PREFIX=${hint_prefix_quoted} LOCAL_STORE_DOCKER_HELPER_IMAGE=${docker_helper_image_quoted} bash $(printf '%q' "${remote_script}") ${remote_command_quoted} $( [[ "${force}" == "1" ]] && printf '%q ' "--force" )${collection_path_quoted}"
+  remote_cmd "${remote_command_string}"
 }
 
 maybe_build() {
