@@ -226,34 +226,34 @@ import pathlib
 import shutil
 import sys
 
-chunk_dir = pathlib.Path(os.environ[\"REMOTE_CHUNK_DIR\"])
-jar_path = pathlib.Path(os.environ[\"REMOTE_JAR_PATH\"])
-partial_path = pathlib.Path(os.environ[\"REMOTE_PARTIAL_PATH\"])
-expected_sha256 = os.environ[\"EXPECTED_SHA256\"]
-expected_size = int(os.environ[\"EXPECTED_SIZE\"])
+chunk_dir = pathlib.Path(os.environ["REMOTE_CHUNK_DIR"])
+jar_path = pathlib.Path(os.environ["REMOTE_JAR_PATH"])
+partial_path = pathlib.Path(os.environ["REMOTE_PARTIAL_PATH"])
+expected_sha256 = os.environ["EXPECTED_SHA256"]
+expected_size = int(os.environ["EXPECTED_SIZE"])
 parts = sorted(path for path in chunk_dir.iterdir() if path.is_file())
 if not parts:
-    raise SystemExit(f\"No uploaded chunks found in {chunk_dir}\")
+    raise SystemExit(f"No uploaded chunks found in {chunk_dir}")
 sha256 = hashlib.sha256()
 size = 0
 success = False
 try:
     partial_path.parent.mkdir(parents=True, exist_ok=True)
-    with partial_path.open(\"wb\") as destination:
+    with partial_path.open("wb") as destination:
         for part in parts:
-            with part.open(\"rb\") as source:
-                for chunk in iter(lambda: source.read(1024 * 1024), b\"\"):
+            with part.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
                     destination.write(chunk)
                     sha256.update(chunk)
                     size += len(chunk)
     digest = sha256.hexdigest()
     if size != expected_size:
-        raise SystemExit(f\"Uploaded jar size mismatch: expected {expected_size}, got {size}\")
+        raise SystemExit(f"Uploaded jar size mismatch: expected {expected_size}, got {size}")
     if digest != expected_sha256:
-        raise SystemExit(f\"Uploaded jar sha256 mismatch: expected {expected_sha256}, got {digest}\")
+        raise SystemExit(f"Uploaded jar sha256 mismatch: expected {expected_sha256}, got {digest}")
     partial_path.replace(jar_path)
     success = True
-    print(f\"[stage] Remote jar verified: {jar_path} ({size} bytes, sha256={digest})\")
+    print(f"[stage] Remote jar verified: {jar_path} ({size} bytes, sha256={digest})")
 finally:
     shutil.rmtree(chunk_dir, ignore_errors=True)
     if not success and partial_path.exists():

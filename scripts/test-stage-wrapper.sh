@@ -155,6 +155,8 @@ run_upload_wrapper_test() {
 
   assert_contains "REMOTE_JAR_PATH=${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}/${PLUGIN_JAR_FILENAME}" "${SSH_LOG}" "remote jar reassembly target missing"
   assert_contains "REMOTE_PARTIAL_PATH=${EXIST_STAGE_REMOTE_DIR}/target/scala-${SCALA_BINARY_VERSION}/${PLUGIN_JAR_FILENAME}\\.partial" "${SSH_LOG}" "remote partial jar path missing"
+  assert_contains 'os\.environ\["REMOTE_CHUNK_DIR"\]' "${SSH_LOG}" "remote python reassembly snippet missing unescaped env lookup"
+  assert_not_contains '\\\\"REMOTE_CHUNK_DIR\\\\"' "${SSH_LOG}" "remote python reassembly snippet should not contain escaped quotes"
   pass "upload uses chunked jar transfer and remote reassembly"
 }
 
